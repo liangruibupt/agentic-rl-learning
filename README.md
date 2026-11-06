@@ -2,7 +2,9 @@
 
 一套循序渐进的交互式 HTML 课程，讲解 Agentic Reinforcement Learning（智能体强化学习）：从基础原理到算法、系统、生态，再到客户自建路线，以及基于 AWS 的完整实验设计。
 
-纯静态页面，不依赖任何外部 CDN。用浏览器直接打开 `index.html` 即可，也可以通过 GitHub Pages 在线访问。
+**在线阅读：[liangruibupt.github.io/agentic-rl-learning](https://liangruibupt.github.io/agentic-rl-learning/)**
+
+纯静态页面，不依赖任何外部 CDN。也可以克隆后用浏览器直接打开 `index.html`。
 
 ## 课程目录
 
