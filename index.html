@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic RL 学习课程 · 路线图</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><main>
+<h1>Agentic RL 学习课程</h1>
+<p class="lead">从“什么是强化学习”讲到“在 AWS 上设计一个可复现的智能体 RL 实验”。每一页都有可以动手的交互组件：拖滑块、点步骤、切换模式、做小测验。</p>
+
+<div class="card">
+<b>一句话定义</b>：Agentic RL（智能体强化学习）是让大模型以智能体身份在环境中多轮调用工具、观察结果、继续决策，最后按<b>任务结果</b>打分，再用强化学习更新模型参数。它训练的是“一整条把事情办成的决策轨迹”，不只是“一句更好的回答”。
+</div>
+
+<h2>三种后训练方式对比</h2>
+<table>
+<tr><th></th><th>SFT 监督微调</th><th>单轮 RL（RLHF / RLVR / RFT）</th><th>Agentic RL（多轮 RL）</th></tr>
+<tr><td>学什么</td><td>模仿标注答案</td><td>对单个 prompt 产出高分回答</td><td>多步决策：何时调哪个工具、如何根据反馈调整</td></tr>
+<tr><td>需要的数据</td><td>输入 + 标准输出</td><td>prompt + 打分器</td><td>任务 + 环境 + 打分器（不需要标准轨迹）</td></tr>
+<tr><td>一个样本</td><td>一段文本</td><td>一个回答</td><td>一条多轮轨迹（几十轮，几分钟到几小时）</td></tr>
+<tr><td>主要难点</td><td>数据质量</td><td>奖励设计、奖励作弊</td><td>以上全部 + 环境工程、长程信用分配、并发沙箱、训推一致</td></tr>
+</table>
+
+<h2>学习路线</h2>
+<div class="grid g2">
+<div class="card"><span class="badge lv-basic">基础班</span><b>建立直觉</b>
+<ol>
+<li><a href="01-basics-what-is-agentic-rl.html">什么是 Agentic RL</a>：把 LLM 看成策略，单轮和多轮的本质区别</li>
+<li><a href="02-basics-training-loop.html">一次训练迭代</a>：从取任务到权重同步的 8 个步骤</li>
+<li><a href="03-basics-grpo.html">GRPO 入门</a>：组内比较怎样产生学习信号</li>
+</ol><p class="mut">前置知识：会用大模型 API，知道什么是微调。</p></div>
+<div class="card"><span class="badge lv-mid">中级班</span><b>能设计训练</b>
+<ol start="4">
+<li><a href="04-intermediate-reward-design.html">奖励设计</a>：复现一个真实的奖励作弊案例</li>
+<li><a href="05-intermediate-agentic-techniques.html">多轮训练关键技术</a>：loss mask、信用分配、训推一致、冷启动</li>
+</ol><p class="mut">学完能判断一个业务任务适不适合 RL，并写出第一版奖励函数。</p></div>
+<div class="card"><span class="badge lv-adv">进阶班</span><b>理解系统与生态</b>
+<ol start="6">
+<li><a href="06-advanced-algorithms.html">算法家族</a>：PPO、GRPO、DAPO、Dr.GRPO、GSPO、CISPO</li>
+<li><a href="07-advanced-systems.html">系统架构与异步 rollout</a></li>
+<li><a href="08-landscape.html">前沿玩家与方案提供方</a></li>
+</ol><p class="mut">学完能和客户的算法团队讨论框架选型。</p></div>
+<div class="card"><span class="badge lv-prac">落地班</span><b>动手做</b>
+<ol start="9">
+<li><a href="09-build-your-own.html">客户自建</a>：选型向导、路线图、成本估算器</li>
+<li><a href="10-aws-experiment.html">AWS 实验设计</a>：AgentCore + SageMaker AI 多轮 RL + Bedrock</li>
+</ol><p class="mut">学完能给客户出一份可执行的 PoC 方案。</p></div>
+</div>
+
+<div class="note">本课程内容基于截至 2026-11 的公开资料。产品支持的模型、区域和价格变化很快，落地前以官方文档为准。</div>
+</main>
+<script src="assets/common.js"></script>
+</body></html>

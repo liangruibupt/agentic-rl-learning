@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 前沿玩家与方案</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><main>
+<span class="badge lv-adv">进阶班 · 08</span>
+<h1>前沿玩家与方案提供方</h1>
+<p class="lead">目标：知道谁在做、做到了什么程度、客户可以直接用什么。按类别筛选。</p>
+<div class="flex" id="pl-filter">
+<button class="btn on" data-c="all">全部</button><button class="btn" data-c="lab">前沿模型实验室</button><button class="btn" data-c="oss">开源训练框架</button><button class="btn" data-c="managed">托管训练服务</button><button class="btn" data-c="env">环境与评测</button>
+</div>
+<div class="grid g3" id="pl-grid" style="margin-top:10px"></div>
+<div class="note">本页根据截至 2026-11 的公开资料整理。前沿实验室的内部训练细节大多没有公开，这里只写它们公开陈述的做法。托管服务支持的模型和区域变化很快，落地前以官方文档为准。</div>
+
+<h2>格局小结</h2>
+<ul>
+<li><b>闭源前沿实验室</b>把 Agentic RL 用在旗舰产品上（深度研究、编码智能体），但方法细节很少公开。</li>
+<li><b>中国开源模型团队</b>（DeepSeek、Qwen、Kimi、智谱、MiniMax、字节）贡献了大部分公开的算法和框架：GRPO、GSPO、DAPO、CISPO，以及 verl、slime 等。</li>
+<li><b>云厂商</b>在做“托管化”：把 rollout、训练、评测打包成服务，客户只需提供智能体、环境和奖励。AWS 目前形成了 Bedrock RFT（单轮）→ SageMaker AI 多轮 RL（托管多轮）→ AgentCore RL Toolkit + HyperPod/EKS（自建）的完整梯度。</li>
+<li><b>环境</b>正在成为新的稀缺资源：Prime Intellect 的 Environments Hub 已有上千个社区环境；从环境自动合成可验证任务是 2026 年的热点方向。</li>
+</ul>
+</main>
+<script src="assets/common.js"></script>
+<script>
+const players=[
+{c:'lab',n:'OpenAI',t:['o 系列','Deep Research','Codex'],d:'o 系列推理模型用大规模 RL 训练；官方表示 Deep Research 在浏览与工具任务上做了端到端 RL。对外提供 RFT（可编程 grader）和 2025 年 DevDay 发布的 Agent RFT。官方公告 Agent Builder 与 Evals 产品将于 2026-11-30 下线。'},
+{c:'lab',n:'Anthropic',t:['Claude','智能体编码'],d:'Claude 系列在智能体编码和长程工具使用上处于前列，训练细节披露有限。在 Amazon Bedrock 上可作为参照上限、教师模型和 LLM 评审。'},
+{c:'lab',n:'Google DeepMind',t:['Gemini','Deep Research'],d:'Gemini 思考模型和 Deep Research 类智能体产品；RL 训练方法的公开细节有限。'},
+{c:'lab',n:'DeepSeek',t:['GRPO','R1'],d:'DeepSeekMath / R1 提出并推广了 GRPO 和可验证奖励 RL，是当前开源 Agentic RL 的算法基础；后续版本公开提到大规模合成智能体任务用于训练。'},
+{c:'lab',n:'Moonshot（Kimi）',t:['K2','Kimi-Researcher'],d:'Kimi K2 强调大规模智能体数据合成与联合 RL；Kimi-Researcher 用端到端 RL 训练研究型智能体。'},
+{c:'lab',n:'阿里 Qwen',t:['GSPO','Qwen3-Coder'],d:'提出 GSPO（序列级优化，MoE 更稳定）；Qwen3-Coder 公开介绍了在大量并行环境上做智能体 RL。Qwen 也是 AWS 托管 RL 服务和开源社区最常用的底座之一。'},
+{c:'lab',n:'智谱 / MiniMax / 字节 Seed',t:['slime','CISPO','DAPO','verl'],d:'智谱开源 slime 并用于 GLM 系列的智能体 RL；MiniMax-M1 提出 CISPO；字节 Seed 提出 DAPO 并开源 verl。'},
+{c:'oss',n:'verl',t:['字节','使用最广'],d:'目前使用最广的开源 LLM RL 框架，支持 FSDP / Megatron + vLLM / SGLang，衍生出 VerlTool、Agent-R1 等多轮工具扩展。AgentCore RL Toolkit 原生集成。'},
+{c:'oss',n:'slime',t:['智谱 THUDM','Megatron + SGLang'],d:'面向大规模 MoE 的 RL 框架，强调训推分离和异步。AgentCore RL Toolkit 原生集成。'},
+{c:'oss',n:'SkyRL / SkyRL-Agent',t:['UC Berkeley'],d:'面向多轮长程智能体训练，异步调度、轻量工具集成，可对接 verl 和 Tinker 兼容 API。'},
+{c:'oss',n:'AReaL',t:['蚂蚁 / 清华','全异步'],d:'把采样和训练完全解耦的异步 RL 系统，针对长尾轨迹提高 GPU 利用率。'},
+{c:'oss',n:'rLLM',t:['Berkeley Agentica'],d:'智能体 RL 框架，原生集成 AgentCore Runtime；与 AWS 合作训练 Java 代码迁移智能体。'},
+{c:'oss',n:'其他框架',t:['Agent Lightning','ROLL','OpenRLHF','TRL','NeMo-RL'],d:'Agent Lightning（微软）主打不改智能体代码接入 RL；ROLL 是阿里的大规模 RL 库；OpenRLHF 和 TRL（GRPOTrainer）适合入门；NeMo-RL 面向 NVIDIA 技术栈。'},
+{c:'oss',n:'AgentCore RL Toolkit',t:['AWS awslabs','Apache-2.0'],d:'理念是“训练的智能体就是部署的智能体”：智能体跑在 AgentCore Runtime，rollout 网关做 token 级捕获，训练后端可选 verl、slime、SkyRL、Tinker、SageMaker。公开结果：MigrationBench 43%→76%，τ²-Bench Telecom 38%→96%（SFT + RL），CAR-bench 52%→83%（与 BMW 合作）。'},
+{c:'managed',n:'Amazon SageMaker AI 多轮 RL',t:['2026-06 发布','Serverless','按 token 计费'],d:'托管多轮 RL：训练任务调用你部署在 AgentCore（或通过 Lambda 转发到 EKS / EC2 / Fargate）的智能体，轨迹结束时上报奖励，GRPO 更新 LoRA。博客列出的底座有 Nova 2 Lite、GPT-OSS-20B、Gemma 4 31B、Qwen 3.6 27B。'},
+{c:'managed',n:'Amazon Bedrock RFT',t:['单轮为主','Lambda grader'],d:'全托管 GRPO 强化微调，奖励用 Lambda 代码或模型评审，可以用调用日志做数据。文档列出 Nova 2 Lite、gpt-oss-20B、Qwen3 32B，并提供 OpenAI 兼容 API。'},
+{c:'managed',n:'SageMaker HyperPod / EKS 自建',t:['完全控制'],d:'在弹性 GPU 集群上运行 verl、slime 等开源框架，配合 AgentCore Runtime 做 rollout。适合全参数训练、自定义算法或不在托管列表里的模型。'},
+{c:'managed',n:'OpenAI RFT / Agent RFT',t:['闭源模型'],d:'对 OpenAI 推理模型做强化微调，grader 可编程；数据和模型留在 OpenAI 平台。'},
+{c:'managed',n:'Thinking Machines Tinker',t:['训练 API'],d:'把分布式训练抽象成 API，用户自己写采样和 RL 循环，平台负责 GPU。AgentCore RL Toolkit 支持它的接口。'},
+{c:'managed',n:'Prime Intellect Lab',t:['Environments Hub'],d:'环境社区加训练平台：任务、harness、评测、RL 训练、部署适配器一体化。'},
+{c:'env',n:'τ²-Bench',t:['客服','用户模拟'],d:'航空、零售、电信客服场景，有政策约束和用户模拟器，常用 pass^k 衡量稳定性。'},
+{c:'env',n:'SWE-bench / SWE-Gym / Terminal-Bench',t:['编码','终端'],d:'在真实仓库里修 bug、做终端任务，奖励是测试是否通过。Agentic RL 最重要的试验场。'},
+{c:'env',n:'WebArena / OSWorld / AppWorld',t:['网页','桌面','App'],d:'浏览器、操作系统、多应用环境，长程且状态复杂。'},
+{c:'env',n:'MigrationBench / OfficeBench / CAR-bench',t:['AWS 公开实验'],d:'Java 代码迁移、办公自动化、车载助手，AgentCore RL Toolkit 的公开实验基准。'}];
+const cat={lab:'前沿模型实验室',oss:'开源训练框架',managed:'托管训练服务',env:'环境与评测'};
+function draw(c){$('#pl-grid').innerHTML=players.filter(p=>c==='all'||p.c===c).map(p=>`<div class="card"><h3 style="margin:0 0 4px">${p.n}</h3><div><span class="tag">${cat[p.c]}</span>${p.t.map(x=>`<span class="tag">${x}</span>`).join('')}</div><p style="font-size:13.5px">${p.d}</p></div>`).join('')}
+seg($$('#pl-filter .btn'),b=>draw(b.dataset.c));draw('all');
+</script>
+</body></html>

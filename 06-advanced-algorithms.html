@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 算法家族</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><main>
+<span class="badge lv-adv">进阶班 · 06</span>
+<h1>算法家族：从 PPO 到 GRPO 的各种变体</h1>
+<p class="lead">目标：看懂主流算法论文在改什么，能和算法团队讨论该选哪个。</p>
+
+<h2>1. 先读懂 GRPO 目标函数</h2>
+<pre><code>L(θ) = − E[ 1/G Σ_i  1/|o_i| Σ_t  min( ρ_{i,t}·A_i ,  clip(ρ_{i,t}, 1−ε, 1+ε)·A_i ) ]  +  β·KL(π_θ ‖ π_ref)
+
+ρ_{i,t} = π_θ(o_{i,t} | ctx) / π_old(o_{i,t} | ctx)   # 重要性比率：当前策略 vs 采样时的策略
+A_i     = (r_i − mean(r)) / std(r)                    # 组内相对优势，同一轨迹的所有生成 token 共享
+clip    限制单步更新幅度，防止一次走太远                 # 来自 PPO
+Σ_t     只对 mask = 1 的 token 求和                    # 工具返回不参与（见第 05 课）
+KL      防止偏离参考模型太远；很多 Agentic 实践把 β 设得很小或为 0</code></pre>
+
+<h2>2. 动手：看 clip 怎么限制更新</h2>
+<div class="card">
+<div class="grid g3">
+<div><label class="sl">重要性比率 ρ = <b id="v-rho">1.30</b></label><input type="range" id="rho" min="0.5" max="1.8" step="0.01" value="1.3"></div>
+<div><label class="sl">优势 A = <b id="v-a">1.00</b></label><input type="range" id="adv" min="-2" max="2" step="0.05" value="1"></div>
+<div><label class="sl">ε<sub>low</sub> = <b id="v-el">0.20</b>　ε<sub>high</sub> = <b id="v-eh">0.20</b></label><input type="range" id="eh" min="0.1" max="0.4" step="0.01" value="0.2"><span class="mut" style="font-size:12px">拖动 ε<sub>high</sub>，模拟 DAPO 的 clip-higher</span></div>
+</div>
+<div id="clip-out" class="res" style="margin-top:8px"></div>
+</div>
+<div class="tip">当 A&gt;0 且 ρ 已经超过 1+ε<sub>high</sub>，这个 token 的梯度被截断为 0，不再继续提高它的概率。对低概率的“探索性” token 来说，ρ 很容易超过上限，导致模型越来越保守（熵塌缩）。DAPO 把 ε<sub>high</sub> 调大（clip-higher），就是给这些 token 留出上涨空间。</div>
+
+<h2>3. 算法速查</h2>
+<table>
+<tr><th>算法</th><th>来源</th><th>核心改动</th><th>在智能体场景的意义</th></tr>
+<tr><td>PPO</td><td>OpenAI 2017，RLHF 经典</td><td>clip 比率 + 价值网络 + GAE</td><td>理论上能做逐步信用分配，但价值网络在长轨迹上难训练，且显存翻倍</td></tr>
+<tr><td>GRPO</td><td>DeepSeekMath / DeepSeek-R1</td><td>组内相对优势，去掉价值网络</td><td>当前默认选择；Bedrock RFT、SageMaker AI 多轮 RL 采用</td></tr>
+<tr><td>RLOO</td><td>学界</td><td>留一法基线：用组内其他样本的均值做基线</td><td>无偏、简单，常作对照</td></tr>
+<tr><td>REINFORCE++</td><td>OpenRLHF</td><td>全局批次归一化优势</td><td>减少小组内归一化的方差</td></tr>
+<tr><td>DAPO</td><td>字节 Seed</td><td>clip-higher、动态采样、token 级损失、超长惩罚</td><td>长轨迹下防熵塌缩；丢弃零梯度组</td></tr>
+<tr><td>Dr.GRPO</td><td>Sea AI Lab 等</td><td>去掉长度归一化和标准差归一化</td><td>避免“越长的错误回答被罚得越轻”的偏差</td></tr>
+<tr><td>GSPO</td><td>阿里 Qwen</td><td>用序列级重要性比率和序列级 clip</td><td>MoE 模型上更稳定</td></tr>
+<tr><td>CISPO</td><td>MiniMax-M1</td><td>裁剪重要性采样权重本身，而不是丢掉 token 的梯度</td><td>保留关键“反思”token 的梯度</td></tr>
+<tr><td>回合级方法</td><td>Agent-R1 等 2025–26 工作</td><td>以一次交互为 RL 转移单位，做回合级优势</td><td>长程任务的信用分配</td></tr>
+</table>
+
+<h2>4. 怎么选</h2>
+<ul>
+<li><b>用托管服务：</b>算法已经定了（GRPO 及其调参），你能调的是 group size、学习率、最大 token 数、奖励函数。</li>
+<li><b>自建且任务较短：</b>GRPO 或 Dr.GRPO 起步，加上 DAPO 的动态采样。</li>
+<li><b>MoE 底座：</b>优先尝试 GSPO。</li>
+<li><b>长程任务、回合多：</b>考虑回合级奖励或回合级优势，配合异步 rollout。</li>
+<li><b>不管选哪个：</b>先确认奖励和环境没有问题。经验上，算法差异带来的提升通常小于奖励和数据质量带来的提升。</li>
+</ul>
+
+<h2>5. 离策略修正</h2>
+<p>为了提高 GPU 利用率，异步系统会用落后几个版本的权重继续采样（第 07 课）。这时 π<sub>old</sub> 和 π<sub>θ</sub> 差得更远，ρ 偏离 1 更多，需要：限制最大落后版本数；用重要性采样修正；对 ρ 做截断。推理引擎和训练引擎的数值精度不同（例如 bf16 与 fp32）也会让 ρ 偏离 1，这是 2025–26 年社区关注的“训推不一致”问题之一。</p>
+
+<div class="quiz" data-answer="1"><b>A &gt; 0 且 ρ = 1.5、ε = 0.2 时，这个 token 的梯度如何？</b><br>
+<button class="btn opt">A. 正常更新，继续提高概率</button><button class="btn opt">B. 被 clip 截断，不再提高概率</button><button class="btn opt">C. 反向更新，降低概率</button>
+<div class="qe">正确答案 B。ρ 超过 1.2，clip 生效，min 取到被截断的那一项，对 θ 的梯度为 0。</div></div>
+</main>
+<script src="assets/common.js"></script>
+<script>
+function upd(){const r=+$('#rho').value,a=+$('#adv').value,eh=+$('#eh').value,el=0.2;
+$('#v-rho').textContent=r.toFixed(2);$('#v-a').textContent=a.toFixed(2);$('#v-eh').textContent=eh.toFixed(2);$('#v-el').textContent=el.toFixed(2);
+const c=Math.min(Math.max(r,1-el),1+eh);const u=r*a,cl=c*a;const obj=Math.min(u,cl);const clipped=obj!==u;
+$('#clip-out').innerHTML=`未截断项 ρ·A = <b>${u.toFixed(3)}</b>，截断项 clip(ρ)·A = <b>${cl.toFixed(3)}</b>，取 min = <b>${obj.toFixed(3)}</b>。`+
+(clipped?` <span class="warn">clip 生效：这个 token 的梯度为 0。</span>`:` <span class="ok">clip 未生效：梯度正常，${a>0?'提高':'降低'}该 token 概率。</span>`)}
+['rho','adv','eh'].forEach(i=>$('#'+i).oninput=upd);upd();
+</script>
+</body></html>

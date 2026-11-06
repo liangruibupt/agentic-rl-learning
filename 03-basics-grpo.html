@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 GRPO 入门</title><link rel="stylesheet" href="assets/style.css">
+<style>
+.bars{display:flex;gap:6px;height:190px;border-bottom:1px solid var(--line);position:relative;padding:0 4px}
+.barw{flex:1;position:relative;height:100%}
+.bar{width:70%;position:absolute;left:15%;border-radius:4px;transition:.2s}
+.zero{position:absolute;left:0;right:0;top:50%;border-top:1px dashed var(--mut)}
+.al{position:absolute;left:0;right:0;text-align:center;font-size:11px;color:var(--mut)}
+</style></head>
+<body><main>
+<span class="badge lv-basic">基础班 · 03</span>
+<h1>GRPO 入门：组内比较怎样产生学习信号</h1>
+<p class="lead">目标：不用公式也能讲清楚 GRPO 在做什么，并理解“为什么有些训练数据完全没用”。</p>
+
+<h2>1. 核心思想</h2>
+<p>对同一个任务采样 G 条轨迹（一组），每条得到奖励 r<sub>i</sub>。把组内平均奖励当作“及格线”：</p>
+<pre><code>A_i = (r_i − 组内平均) / 组内标准差</code></pre>
+<p>A<sub>i</sub> 叫<b>优势</b>。A 为正，就提高这条轨迹里模型生成的 token 的概率；A 为负就降低。它不需要单独训练一个“价值网络”来估计及格线（PPO 需要），省显存、实现简单，因此成为 Agentic RL 的默认算法。Amazon Bedrock RFT 和 SageMaker AI 多轮 RL 底层用的都是 GRPO。</p>
+
+<h2>2. 动手：拖动 8 条轨迹的奖励</h2>
+<div class="card">
+<div class="flex">
+<button class="btn on" id="g-std">GRPO（除以标准差）</button>
+<button class="btn" id="g-nostd">Dr.GRPO（只减均值）</button>
+<span class="mut">预设：</span>
+<button class="btn" data-preset="mix">好坏参半</button>
+<button class="btn" data-preset="one">只有 1 条成功</button>
+<button class="btn" data-preset="all">全部成功</button>
+<button class="btn" data-preset="none">全部失败</button>
+</div>
+<div class="bars" id="g-bars" style="margin-top:10px"></div>
+<div class="grid g4" id="g-sliders" style="margin-top:10px"></div>
+<div id="g-stat" class="res" style="margin-top:8px"></div>
+</div>
+
+<div class="tip"><b>建议依次点这几个预设，观察：</b>
+<ol>
+<li><b>只有 1 条成功</b>：那条轨迹的优势很大，模型会被强烈推向它。RL 能从稀少的成功中学习，靠的就是这个。</li>
+<li><b>全部成功 / 全部失败</b>：所有优势都是 0，这一组数据<b>没有任何梯度</b>，白白消耗算力。任务太简单或太难都会这样，所以 Bedrock 文档建议基线成功率在 5%–95% 之间才适合做 RL。</li>
+<li><b>切换到 Dr.GRPO</b>：除以标准差会放大“几乎全对”的组里的微小差异。Dr.GRPO 认为这带来了难度偏差，因此去掉了这一步。</li>
+</ol></div>
+
+<h2>3. 为什么要“一组”</h2>
+<p>单独一条轨迹得了 0.6 分，你不知道它算好还是算坏：任务可能很简单（大家都 0.9），也可能很难（大家都 0.1）。同一任务的多条轨迹放在一起比较，就自动消除了任务难度的影响。代价是每个任务要跑 G 次，成本乘以 G。</p>
+
+<div class="quiz" data-answer="0"><b>某任务的 8 条轨迹奖励全是 1.0，这组数据对训练有什么贡献？</b><br>
+<button class="btn opt">A. 没有贡献，优势全为 0</button><button class="btn opt">B. 贡献很大，因为全部成功</button>
+<div class="qe">正确答案 A。GRPO 只从组内差异中学习。DAPO 的“动态采样”就是把这种组丢掉，换新的任务来采样。</div></div>
+<div class="quiz" data-answer="2"><b>如果你的任务基线成功率是 0%，最合理的第一步是？</b><br>
+<button class="btn opt">A. 加大 group size 到 64</button><button class="btn opt">B. 直接开始 GRPO 训练</button><button class="btn opt">C. 先做 SFT 冷启动，或把任务拆简单</button>
+<div class="qe">正确答案 C。全部失败时没有梯度，GRPO 学不到东西。先用示范轨迹做 SFT 或设计课程式的简单任务，让成功率进入可学习区间。</div></div>
+</main>
+<script src="assets/common.js"></script>
+<script>
+let G=[1,0,0,1,0.3,0,1,0],useStd=true;
+const presets={mix:[1,0,0,1,0.3,0,1,0],one:[0,0,0,1,0,0,0,0],all:[1,1,1,1,1,1,1,1],none:[0,0,0,0,0,0,0,0]};
+function sliders(){const box=$('#g-sliders');box.innerHTML='';G.forEach((v,i)=>{const d=document.createElement('div');
+d.innerHTML=`<label class="sl">轨迹 ${i+1} 奖励 r = <b id="gv${i}">${v.toFixed(2)}</b></label><input type="range" min="0" max="1" step="0.05" value="${v}" data-i="${i}">`;box.appendChild(d)});
+$$('#g-sliders input').forEach(inp=>inp.oninput=e=>{G[+e.target.dataset.i]=+e.target.value;draw()})}
+function draw(){const m=G.reduce((a,b)=>a+b,0)/G.length;const sd=Math.sqrt(G.reduce((a,b)=>a+(b-m)**2,0)/G.length);
+const A=G.map(r=>useStd?(r-m)/(sd+1e-6):(r-m));const mx=Math.max(useStd?2:1,...A.map(Math.abs));
+let h='<div class="zero"></div>';A.forEach(a=>{const ht=Math.abs(a)/mx*88;
+h+=`<div class="barw"><div class="bar" style="height:${ht}px;${a>=0?'bottom:50%;background:var(--ok)':'top:50%;background:var(--bad)'}"></div><div class="al" style="${a>=0?`bottom:calc(50% + ${ht+2}px)`:`top:calc(50% + ${ht+2}px)`}">A=${a.toFixed(2)}</div></div>`});
+$('#g-bars').innerHTML=h;G.forEach((v,i)=>{$('#gv'+i).textContent=v.toFixed(2)});
+const zero=A.every(a=>Math.abs(a)<1e-4);
+$('#g-stat').innerHTML=`组内平均 <b>${m.toFixed(3)}</b>，标准差 <b>${sd.toFixed(3)}</b>。`+(zero?' <span class="bad">所有优势为 0：这组数据对参数更新没有贡献。</span>':' <span class="ok">绿色轨迹的生成 token 概率会被提高，红色的被降低，幅度与柱高成正比。</span>')}
+seg([$('#g-std'),$('#g-nostd')],b=>{useStd=b.id==='g-std';draw()});
+$$('[data-preset]').forEach(b=>b.onclick=()=>{G=[...presets[b.dataset.preset]];sliders();draw()});
+sliders();draw();
+</script>
+</body></html>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 奖励设计</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><main>
+<span class="badge lv-mid">中级班 · 04</span>
+<h1>奖励设计：模型会优化你写的分数，而不是你心里想的目标</h1>
+<p class="lead">目标：能写出第一版奖励函数，并用单调性检查发现奖励作弊。</p>
+
+<h2>1. 奖励的三种来源</h2>
+<div class="grid g3">
+<div class="card"><b>规则 / 程序验证</b><p>数据库最终状态、单元测试、编译通过、字段精确匹配。</p><p class="ok">首选：便宜、确定、难作弊。</p></div>
+<div class="card"><b>LLM 评审</b><p>语气、完整性、政策遵循等主观项，用 rubric 让模型打分。</p><p class="warn">贵、有噪声、可能被“讨好”，权重要小，并抽样人工复核。</p></div>
+<div class="card"><b>过程塑形</b><p>工具调用是否合法、步数、重复调用惩罚。</p><p class="mut">只用来区分同一结果档位内的轨迹，不能决定档位。</p></div>
+</div>
+
+<h2>2. 动手：复现一个真实的奖励倒挂</h2>
+<p>案例来自 AWS 博客《Multi-Turn Reinforcement Learning on Amazon SageMaker AI》中的 Wordle 智能体。第一版奖励把每一步猜词的得分累加，结果出现了两个倒挂：<b>输了还拿正分</b>，<b>第 1 步猜中比第 3 步猜中分还低</b>。作者是读轨迹时才发现的。修正方法是“结果项主导 + 有界塑形项”。调参数看看排序会不会被破坏。</p>
+<div class="card">
+<div class="flex"><button class="btn on" id="rw-naive">版本 1：逐步得分累加</button><button class="btn" id="rw-fixed">版本 2：结果主导 + 有界塑形</button></div>
+<div class="grid g3" id="rw-ctrl" style="margin-top:10px"></div>
+<table id="rw-table"></table>
+<div id="rw-check" class="res"></div>
+</div>
+<div class="tip">在版本 2 里把“成功时塑形权重”拉到 0.15 以上试试。博客作者第一次修正就用了 0.15，结果第 3 步猜中（塑形满分）反超了第 2 步猜中（塑形最低分）。相邻步数的结果分只差 0.1，所以塑形权重必须足够小，才不会跨档。</div>
+
+<h2>3. 防作弊清单</h2>
+<ul>
+<li><b>写单调性测试。</b>更好的结果必须总是更高分。把上面的检查写成奖励函数的单元测试。</li>
+<li><b>验证器对模型不可见。</b>测试用例、目标状态在轨迹结束后才使用，否则模型会去读测试。</li>
+<li><b>永远返回一个奖励值。</b>SageMaker AI 多轮 RL 中，rollout 报错或从未调用策略模型会让整个训练任务失败。用异常兜底返回最低分。</li>
+<li><b>奖励函数要快。</b>Bedrock 文档建议秒级完成，避免分钟级计算和大量外部 API 调用。</li>
+<li><b>定期读轨迹。</b>每隔若干步随机读 20–50 条，看高分轨迹是否真的“好”。</li>
+<li><b>警惕“逃避型”策略。</b>例如客服智能体发现“转人工”从不违规，于是什么都转人工。要让转人工只在政策要求时才算成功。</li>
+</ul>
+
+<h2>4. 一个通用模板</h2>
+<pre><code>reward = outcome + w * clip(shaping, -1, 1)
+
+outcome  决定档位：完全成功 &gt; 部分成功 &gt; 失败 &gt; 严重违规 &gt; 什么都没做
+shaping  只在档位内区分：步数、合法调用、（小权重）LLM 评审
+w        小到不会跨档：w * 2 &lt; 相邻档位的最小差距</code></pre>
+
+<div class="quiz" data-answer="1"><b>GRPO 下，为什么还需要塑形项，只用 0/1 结果不行吗？</b><br>
+<button class="btn opt">A. 塑形项能让模型学得更快，可以设得很大</button>
+<button class="btn opt">B. 结果相同的轨迹（例如全都失败）没有组内差异；小的塑形项能区分“失败但方向对”和“完全乱来”，提供学习信号</button>
+<button class="btn opt">C. 不需要，只用结果奖励最好</button>
+<div class="qe">正确答案 B。GRPO 从组内差异中学习。全是失败时，塑形项还能告诉模型哪些失败“更接近成功”。但它必须足够小，不能改变档位排序。</div></div>
+</main>
+<script src="assets/common.js"></script>
+<script>
+let mode='naive';const P={per:0.08,solve:0.7,ws:0.04,wl:0.15};
+const scen=[{n:'第 1 步猜中',s:1,t:1,sh:0.6},{n:'第 2 步猜中',s:1,t:2,sh:-0.2},{n:'第 3 步猜中',s:1,t:3,sh:1.0},{n:'第 6 步猜中',s:1,t:6,sh:0.4},{n:'6 步用完未猜中',s:0,t:6,sh:0.5},{n:'从未合法猜测',s:-1,t:0,sh:0}];
+function ctrl(){const c=$('#rw-ctrl');
+c.innerHTML=mode==='naive'?
+`<div><label class="sl">每步得分 b = <b>${P.per}</b></label><input type="range" min="0" max="0.4" step="0.01" value="${P.per}" data-p="per"></div><div><label class="sl">猜中奖励 S = <b>${P.solve}</b></label><input type="range" min="0" max="2" step="0.05" value="${P.solve}" data-p="solve"></div><div class="mut" style="font-size:13px">reward = S × 是否猜中 + b × 回合数</div>`:
+`<div><label class="sl">成功时塑形权重 w<sub>s</sub> = <b>${P.ws}</b></label><input type="range" min="0" max="0.3" step="0.01" value="${P.ws}" data-p="ws"></div><div><label class="sl">失败时塑形权重 w<sub>l</sub> = <b>${P.wl}</b></label><input type="range" min="0" max="0.6" step="0.01" value="${P.wl}" data-p="wl"></div><div class="mut" style="font-size:13px">reward = outcome + w × clip(shaping, −1, 1)<br>outcome：第 n 步猜中 = 1.05 + 0.5(6−n)/5；未猜中 −0.5；无合法猜测 −1.5</div>`;
+$$('#rw-ctrl input').forEach(i=>i.oninput=e=>{P[e.target.dataset.p]=+e.target.value;ctrl();draw()})}
+function score(x){if(mode==='naive')return x.s===-1?0:(x.s?P.solve:0)+P.per*x.t;
+const c=Math.max(-1,Math.min(1,x.sh));if(x.s===-1)return -1.5;if(x.s)return 1.05+0.5*(6-x.t)/5+P.ws*c;return -0.5+P.wl*c}
+function draw(){const rs=scen.map(score);let h='<tr><th>场景（按应有的好坏排序）</th><th>塑形值</th><th>奖励</th></tr>';
+scen.forEach((x,i)=>h+=`<tr><td>${x.n}</td><td>${mode==='naive'?'—':x.sh}</td><td><b>${rs[i].toFixed(3)}</b></td></tr>`);$('#rw-table').innerHTML=h;
+const is=[];for(let i=0;i<rs.length-1;i++)if(rs[i]<=rs[i+1])is.push(`“${scen[i].n}”(${rs[i].toFixed(2)}) 不高于 “${scen[i+1].n}”(${rs[i+1].toFixed(2)})`);
+if(rs[4]>0)is.push(`失败的游戏拿到正分 ${rs[4].toFixed(2)}`);
+$('#rw-check').innerHTML=is.length?`<span class="bad">发现 ${is.length} 处问题：</span><br>`+is.join('<br>')+'<br><span class="mut">模型会学会拖延回合刷分，而不是尽快猜中。</span>':'<span class="ok">排序正确：越快猜中分越高，任何成功都高于任何失败，失败为负分。</span>'}
+seg([$('#rw-naive'),$('#rw-fixed')],b=>{mode=b.id==='rw-naive'?'naive':'fixed';ctrl();draw()});ctrl();draw();
+</script>
+</body></html>

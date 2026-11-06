@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 系统架构与异步</title><link rel="stylesheet" href="assets/style.css">
+<style>
+.gantt{border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel2)}
+.lane{display:flex;align-items:center;height:26px;margin:4px 0;font-size:12px}
+.lane .lb{width:110px;color:var(--mut)}
+.lane .tr{flex:1;position:relative;height:20px;background:var(--panel);border-radius:4px}
+.blk{position:absolute;top:2px;height:16px;border-radius:3px;font-size:10px;color:#fff;padding-left:3px;overflow:hidden;white-space:nowrap}
+.b-gen{background:var(--acc)}.b-train{background:var(--vio)}.b-sync{background:var(--warn)}
+.b-idle{background:repeating-linear-gradient(45deg,transparent,transparent 3px,color-mix(in srgb,var(--bad) 45%,transparent) 3px,color-mix(in srgb,var(--bad) 45%,transparent) 6px)}
+</style></head>
+<body><main>
+<span class="badge lv-adv">进阶班 · 07</span>
+<h1>系统架构与异步 Rollout</h1>
+<p class="lead">目标：知道一个 Agentic RL 系统由哪些组件组成，各自跑在什么资源上，为什么异步很重要。</p>
+
+<h2>1. 动手：点击组件看职责</h2>
+<div class="card">
+<svg viewBox="0 0 960 330" width="100%" class="clk" id="archsvg">
+<g class="node" data-k="ctl"><rect x="20" y="20" width="200" height="60" rx="10"/><text x="120" y="47" text-anchor="middle">调度器</text><text x="120" y="66" text-anchor="middle" style="font-size:11px;fill:var(--mut)">批次、版本、重试</text></g>
+<g class="node" data-k="env"><rect x="20" y="130" width="200" height="80" rx="10"/><text x="120" y="160" text-anchor="middle">Rollout 工作池</text><text x="120" y="180" text-anchor="middle" style="font-size:11px;fill:var(--mut)">智能体 + 沙箱 (CPU)</text><text x="120" y="197" text-anchor="middle" style="font-size:11px;fill:var(--mut)">AgentCore Runtime / K8s</text></g>
+<g class="node" data-k="gw"><rect x="290" y="140" width="170" height="60" rx="10"/><text x="375" y="167" text-anchor="middle">Rollout 网关</text><text x="375" y="186" text-anchor="middle" style="font-size:11px;fill:var(--mut)">OpenAI 兼容 + token 捕获</text></g>
+<g class="node" data-k="inf"><rect x="530" y="40" width="190" height="70" rx="10"/><text x="625" y="68" text-anchor="middle">推理引擎 (GPU)</text><text x="625" y="88" text-anchor="middle" style="font-size:11px;fill:var(--mut)">vLLM / SGLang</text></g>
+<g class="node" data-k="rw"><rect x="290" y="250" width="170" height="60" rx="10"/><text x="375" y="277" text-anchor="middle">奖励服务</text><text x="375" y="296" text-anchor="middle" style="font-size:11px;fill:var(--mut)">Lambda / 验证沙箱 / 评审</text></g>
+<g class="node" data-k="buf"><rect x="530" y="240" width="190" height="70" rx="10"/><text x="625" y="268" text-anchor="middle">经验缓冲区</text><text x="625" y="288" text-anchor="middle" style="font-size:11px;fill:var(--mut)">轨迹 + 奖励 + 版本号</text></g>
+<g class="node" data-k="tr"><rect x="780" y="140" width="160" height="70" rx="10"/><text x="860" y="168" text-anchor="middle">训练引擎 (GPU)</text><text x="860" y="188" text-anchor="middle" style="font-size:11px;fill:var(--mut)">FSDP / Megatron</text></g>
+<g class="node" data-k="obs"><rect x="780" y="20" width="160" height="60" rx="10"/><text x="860" y="47" text-anchor="middle">观测与评测</text><text x="860" y="66" text-anchor="middle" style="font-size:11px;fill:var(--mut)">MLflow / OTel traces</text></g>
+<path class="edge" d="M120,80 L120,130"/><path class="edge" d="M220,170 L290,170"/><path class="edge" d="M460,160 C490,140 500,90 530,80"/>
+<path class="edge" d="M220,195 C250,250 260,270 290,280"/><path class="edge" d="M460,280 L530,275"/><path class="edge" d="M720,270 C760,250 770,220 790,210"/>
+<path class="edge" d="M800,140 C780,100 760,80 720,75"/><path class="edge" d="M860,140 L860,80"/>
+</svg>
+<div id="arch-info" class="card" style="background:var(--panel2);min-height:90px">点击上图任一组件。</div>
+</div>
+
+<h2>2. 动手：同步和异步，GPU 在等什么</h2>
+<div class="card">
+<div class="flex"><button class="btn on" id="gt-sync">同步（on-policy）</button><button class="btn" id="gt-async">异步（允许旧权重采样）</button><button class="btn" id="gt-shuffle">换一批随机轨迹长度</button></div>
+<div class="gantt" id="gantt" style="margin-top:10px"></div>
+<div id="gt-stat" class="res" style="margin-top:6px"></div>
+</div>
+<div class="tip">智能体任务的轨迹长度通常是长尾分布：有的 3 轮就结束，有的要 40 轮。同步模式下整批都要等最慢的那条；异步模式让训练和下一批采样重叠。AgentCore RL Toolkit 公开的 SWE-Gym 实验中，异步训练每 GPU 小时的奖励提升约高 22%。AReaL、slime、SkyRL 都把异步作为核心设计。代价是数据变成轻微 off-policy，需要第 06 课讲的修正。</div>
+
+<h2>3. 资源怎么分</h2>
+<table>
+<tr><th>组件</th><th>资源类型</th><th>扩缩特点</th></tr>
+<tr><td>Rollout 工作池（智能体 + 沙箱）</td><td>CPU、内存、磁盘</td><td>并发量大（数百到数千），按需弹性；适合 serverless 或 K8s</td></tr>
+<tr><td>推理引擎</td><td>GPU</td><td>吞吐决定采样速度；需要支持热更新权重</td></tr>
+<tr><td>训练引擎</td><td>GPU</td><td>按模型大小和并行策略固定；可与推理共置（colocate）或分离</td></tr>
+<tr><td>奖励服务</td><td>CPU（LLM 评审时调用外部模型）</td><td>要快；Lambda 天然并行</td></tr>
+</table>
+<div class="note">共置（同一批 GPU 轮流做推理和训练）省卡但有切换开销；分离部署利用率更高但需要跨机权重同步。verl 默认偏共置，slime 等框架更强调分离和异步。</div>
+
+<div class="quiz" data-answer="2"><b>为什么 rollout 沙箱通常不和训练放在同一批 GPU 机器上？</b><br>
+<button class="btn opt">A. 沙箱需要 GPU</button><button class="btn opt">B. 安全原因，不能共存</button><button class="btn opt">C. 沙箱主要消耗 CPU 和内存，并发量和生命周期与 GPU 训练完全不同，分开才能各自弹性扩缩</button>
+<div class="qe">正确答案 C。这也是 AWS 用 AgentCore Runtime 承载 rollout、GPU 只做推理和训练的原因。</div></div>
+</main>
+<script src="assets/common.js"></script>
+<script>
+const info={
+ctl:'<b>调度器</b>：决定每步取哪些任务、每组采几条、允许多大的版本落后；处理超时和重试，确保失败的 rollout 也能返回一个奖励。',
+env:'<b>Rollout 工作池</b>：运行智能体代码和它的环境（代码仓库、数据库、浏览器）。每条 rollout 需要独立隔离、可复位，规模往往是上百到上千并发。AgentCore Runtime 每个会话一个 microVM、按需扩缩、单会话最长 8 小时，适合承担这一层。',
+gw:'<b>Rollout 网关</b>：对智能体暴露标准 OpenAI / Anthropic 兼容接口，业务智能体代码不用为 RL 改造；内部把消息渲染成 token、调用推理引擎，并记录原始 token id、logprob 和 loss mask，按会话归组成轨迹。AgentCore RL Toolkit 提供这个组件。',
+inf:'<b>推理引擎</b>：用当前策略权重高吞吐地采样。vLLM、SGLang 是主流，需要支持在线热更新权重。',
+rw:'<b>奖励服务</b>：执行验证器（测试、状态比对）或调用 LLM 评审。Bedrock RFT 用 Lambda 做奖励函数；SageMaker AI 多轮 RL 由智能体在轨迹结束时自己上报奖励；SWE 类任务通常在独立沙箱中跑测试。',
+buf:'<b>经验缓冲区</b>：存放（轨迹，奖励，采样时的权重版本号）。异步训练靠它把采样和训练解耦。',
+tr:'<b>训练引擎</b>：FSDP、Megatron 等分布式训练，计算 GRPO 等损失并更新参数，再通过 NCCL 或共享存储把权重同步给推理引擎。verl、slime、SkyRL、AReaL 主要在这一层和调度层做创新。',
+obs:'<b>观测与评测</b>：奖励曲线、熵、轨迹长度、工具调用成功率（MLflow）；每一回合的 trace（OpenTelemetry / CloudWatch）。读轨迹是发现奖励作弊的主要手段。'};
+$$('#archsvg .node').forEach(g=>g.addEventListener('click',()=>{$$('#archsvg .node').forEach(x=>x.classList.remove('hi'));g.classList.add('hi');$('#arch-info').innerHTML=info[g.dataset.k]}));
+let mode='sync',lens=[];
+function shuffle(){lens=[];for(let b=0;b<3;b++){const a=[];for(let i=0;i<4;i++){const u=Math.random();a.push(u<0.7?1+Math.random()*2:3+Math.random()*5)}lens.push(a)}}
+function draw(){const T=1.2,S=0.3,L=[[],[],[],[]],tr=[];let t=0,tot;
+if(mode==='sync'){lens.forEach((a,b)=>{const mx=Math.max(...a);a.forEach((l,i)=>{L[i].push({s:t,d:l,c:'b-gen',x:'B'+(b+1)});if(l<mx)L[i].push({s:t+l,d:mx-l,c:'b-idle'})});t+=mx;tr.push({s:t,d:T,c:'b-train',x:'训练'});tr.push({s:t+T,d:S,c:'b-sync'});L.forEach(x=>x.push({s:t,d:T+S,c:'b-idle'}));t+=T+S});tot=t}
+else{const f=[0,0,0,0];let te=0;lens.forEach((a,b)=>{let dn=0;a.forEach((l,i)=>{L[i].push({s:f[i],d:l,c:'b-gen',x:'B'+(b+1)});f[i]+=l;dn=Math.max(dn,f[i])});const ts=Math.max(dn,te);tr.push({s:ts,d:T,c:'b-train',x:'训练'});tr.push({s:ts+T,d:S,c:'b-sync'});te=ts+T+S});tot=Math.max(te,...f)}
+const W=tot*1.02,blk=k=>`<div class="blk ${k.c}" style="left:${k.s/W*100}%;width:${k.d/W*100}%">${k.x||''}</div>`;
+let h='';L.forEach((x,i)=>h+=`<div class="lane"><div class="lb">rollout 槽 ${i+1}</div><div class="tr">${x.map(blk).join('')}</div></div>`);
+h+=`<div class="lane"><div class="lb">训练 GPU</div><div class="tr">${tr.map(blk).join('')}</div></div>`;$('#gantt').innerHTML=h;
+let idle=0,busy=0;L.forEach(x=>x.forEach(k=>{if(k.c==='b-idle')idle+=k.d;if(k.c==='b-gen')busy+=k.d}));const p=idle/(idle+busy);
+$('#gt-stat').innerHTML=`3 个批次总耗时 <b>${tot.toFixed(1)}</b>（任意单位），rollout 槽空等占比 <b class="${p>0.3?'bad':'ok'}">${(p*100).toFixed(0)}%</b>。蓝=采样，紫=训练，黄=权重同步，红色斜纹=空等。`+(mode==='async'?' 异步模式下，后一批的部分轨迹由旧权重生成，需要离策略修正。':'')}
+seg([$('#gt-sync'),$('#gt-async')],b=>{mode=b.id==='gt-sync'?'sync':'async';draw()});$('#gt-shuffle').onclick=()=>{shuffle();draw()};shuffle();draw();
+</script>
+</body></html>

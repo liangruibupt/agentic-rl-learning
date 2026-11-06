@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 AWS 实验设计</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><main>
+<span class="badge lv-prac">落地班 · 10</span>
+<h1>AWS 实验设计：ShopOps 客服智能体</h1>
+<p class="lead">用 Amazon Bedrock AgentCore 托管智能体和环境，用 SageMaker AI 多轮 RL 训练开源模型，用 Bedrock 上的前沿模型做参照、教师和评审。</p>
+
+<div class="card">
+<b>实验目标：</b>验证多轮 RL 能否让 20–30B 开源模型在“退换货 / 改单”工单任务上接近前沿模型，同时降低政策违规率和单任务成本。<br>
+<b>为什么选这个任务：</b>结果可以用订单数据库的最终状态程序判定；有明确的政策约束，方便设计违规惩罚；和客户的真实场景接近。公开参照 τ²-Bench Telecom 上已有 38%→96%（SFT + RL）的结果，可以作为先验。
+</div>
+
+<h2>1. 预先登记的假设</h2>
+<table>
+<tr><th>编号</th><th>假设</th><th>判定标准</th></tr>
+<tr><td>H1</td><td>多轮 RL 能显著提升小模型的成功率</td><td>隐藏集 pass^1：A4 − A1 ≥ 15 个百分点，bootstrap 95% 置信区间不含 0</td></tr>
+<tr><td>H2</td><td>SFT 冷启动 + RL 优于单独 RL</td><td>A5 的 pass^1 高于 A4，且 pass^4 的差距更大</td></tr>
+<tr><td>H3</td><td>RL 后的小模型能以低得多的成本接近前沿模型</td><td>A5 与 A0 的 pass^1 差 ≤ 5 个百分点，单任务推理成本 ≤ A0 的 1/5</td></tr>
+<tr><td>H4</td><td>违规惩罚项能降低违规且不牺牲成功率</td><td>消融组 A5′（无违规惩罚）的违规率高于 A5，成功率不显著更高</td></tr>
+</table>
+
+<h2>2. 实验组</h2>
+<table>
+<tr><th>组</th><th>模型</th><th>方法</th><th>AWS 服务</th></tr>
+<tr><td>A0 参照上限</td><td>Bedrock 上的前沿模型（如 Claude）</td><td>同一份智能体代码，只换模型</td><td>Amazon Bedrock</td></tr>
+<tr><td>A1 基线</td><td>Qwen 3.6 27B 或 GPT-OSS-20B</td><td>不训练</td><td>SageMaker AI 评测任务</td></tr>
+<tr><td>A2 提示词优化</td><td>同 A1</td><td>只改系统提示和工具描述</td><td>同上</td></tr>
+<tr><td>A3 SFT</td><td>同 A1</td><td>用 A0 的成功轨迹蒸馏</td><td>SageMaker AI 模型定制，或 HyperPod 自建</td></tr>
+<tr><td>A4 RL</td><td>同 A1</td><td>多轮 RL（GRPO + LoRA）</td><td>SageMaker AI 多轮 RL + AgentCore Runtime</td></tr>
+<tr><td>A5 SFT → RL</td><td>A3 的产出</td><td>在 SFT 基础上继续多轮 RL</td><td>同上；如果托管服务不支持以 SFT 产出为起点，改走第 9 节的 B 线</td></tr>
+<tr><td>A5′ 消融</td><td>同 A5</td><td>奖励去掉违规惩罚</td><td>同上</td></tr>
+</table>
+
+<h2>3. 架构（点击组件查看说明）</h2>
+<div class="card">
+<svg viewBox="0 0 960 300" width="100%" class="clk" id="expsvg">
+<g class="node" data-k="s3"><rect x="10" y="20" width="200" height="70" rx="10"/><text x="110" y="48" text-anchor="middle">Amazon S3：任务集</text><text x="110" y="68" text-anchor="middle" style="font-size:11px;fill:var(--mut)">训练 600 / 验证 150 / 隐藏 200</text></g>
+<g class="node" data-k="mtrl"><rect x="270" y="20" width="230" height="70" rx="10"/><text x="385" y="48" text-anchor="middle">SageMaker AI 多轮 RL 任务</text><text x="385" y="68" text-anchor="middle" style="font-size:11px;fill:var(--mut)">GRPO + LoRA · 托管策略模型</text></g>
+<g class="node" data-k="acr"><rect x="270" y="160" width="230" height="110" rx="10"/><text x="385" y="188" text-anchor="middle">AgentCore Runtime</text><text x="385" y="210" text-anchor="middle" style="font-size:11px;fill:var(--mut)">每会话一个 microVM</text><text x="385" y="228" text-anchor="middle" style="font-size:11px;fill:var(--mut)">Strands 智能体 + 工具 + SQLite</text><text x="385" y="246" text-anchor="middle" style="font-size:11px;fill:var(--mut)">奖励函数（同一份代码）</text></g>
+<g class="node" data-k="mlf"><rect x="570" y="20" width="180" height="70" rx="10"/><text x="660" y="48" text-anchor="middle">SageMaker MLflow</text><text x="660" y="68" text-anchor="middle" style="font-size:11px;fill:var(--mut)">奖励 / pass@1 曲线</text></g>
+<g class="node" data-k="cw"><rect x="570" y="160" width="180" height="50" rx="10"/><text x="660" y="190" text-anchor="middle">CloudWatch / OTel traces</text></g>
+<g class="node" data-k="br"><rect x="570" y="225" width="180" height="50" rx="10"/><text x="660" y="255" text-anchor="middle">Bedrock：A0 + 评审</text></g>
+<g class="node" data-k="pkg"><rect x="800" y="90" width="150" height="80" rx="10"/><text x="875" y="122" text-anchor="middle">模型包</text><text x="875" y="142" text-anchor="middle" style="font-size:11px;fill:var(--mut)">评测 → 部署</text></g>
+<path class="edge" d="M210,55 L270,55"/><path class="edge" d="M375,90 L375,160"/><path class="edge" d="M400,160 L400,90"/>
+<path class="edge" d="M500,55 L570,55"/><path class="edge" d="M500,190 L570,185"/><path class="edge" d="M500,245 L570,250"/><path class="edge" d="M500,40 C700,0 800,40 830,90"/>
+</svg>
+<div id="exp-info" class="card" style="background:var(--panel2);min-height:70px">点击上图任一组件。</div>
+</div>
+<p class="mut" style="font-size:13.5px">数据流：训练任务对每个 rollout 调用一次 AgentCore Runtime → 智能体通过 SageMaker Job Runtime 的 OpenAI 兼容端点调用正在训练的策略模型 → 多轮调用工具修改订单库 → 轨迹结束时计算奖励并上报 → GRPO 用组内奖励差更新 LoRA。</p>
+
+<h2>4. 环境与任务</h2>
+<ul>
+<li><b>工具：</b><code>get_user</code>、<code>list_orders</code>、<code>get_order</code>、<code>return_items</code>、<code>exchange_items</code>、<code>transfer_to_human</code>。训练时工具在智能体进程内直接操作 SQLite，避免网络抖动；上线时用同样的工具签名，通过 AgentCore Gateway（MCP）接真实系统。</li>
+<li><b>政策文档：</b>例如“发货超过 30 天不可退”“换货只能换同一商品的不同规格”“执行写操作前必须得到用户确认”。</li>
+<li><b>任务合成：</b>参考 AgentCore RL Toolkit“从环境本身合成可验证任务”的方法，用 Bedrock 上的前沿模型基于数据库状态和政策生成任务、用户画像和目标最终状态；人工抽检 10%。</li>
+<li><b>用户模拟器：</b>对话中的“用户”由一个固定的模型扮演（固定 temperature 和 seed），所有组共用，避免引入组间差异。</li>
+<li><b>数据切分：</b>600 训练 / 150 验证 / 200 隐藏测试。隐藏集使用不同的用户和订单，其中 30% 是训练中没出现过的政策组合；实验开始前冻结并记录 SHA256。</li>
+</ul>
+
+<h2>5. 奖励函数</h2>
+<pre><code>reward = outcome + 0.1 * clip(shaping, -1, 1)
+
+outcome（决定档位）
+  +1.0  最终数据库状态与目标一致，且无违规
+  +0.3  状态一致但有违规（例如未确认就执行）
+  -0.5  状态不一致（办错或没办完）
+  -1.0  执行了政策禁止的写操作
+  -1.5  从未产生合法工具调用
+
+shaping（只在同一档位内区分）
+  + 回合数少于中位数              - 重复调用同一个只读工具
+  - 非法参数或不存在的订单号        + （小权重）LLM 评审给的沟通质量分</code></pre>
+<p>上线前按第 04 课的方法写单调性测试：任何“完全成功”的得分高于任何“状态一致但违规”，后者又高于任何“办错”，且所有失败轨迹得分都小于 0。塑形权重 0.1 × 2 = 0.2 小于最小档位差 0.5，不会跨档。</p>
+
+<h2>6. 智能体代码骨架（训练和部署共用）</h2>
+<pre><code>from bedrock_agentcore import BedrockAgentCoreApp
+from strands import Agent
+# sagemaker_rft_handler、build_model 的导入方式以 aws-samples/sample-multi-turn-rl-wordle 为准
+
+app = BedrockAgentCoreApp()
+
+@app.entrypoint            # 必须在最外层，负责启动 HTTP 服务；否则每次调用 30 秒超时
+@sagemaker_rft_handler     # 把返回的 reward 上报给 SageMaker AI
+def handle_rollout(payload):
+    task = parse_task(payload["prompt"])           # 任务 JSON：用户画像、目标状态、id
+    env = ShopEnv.from_snapshot(task["db_seed"])   # 每个 rollout 一份独立的 SQLite
+    try:
+        agent = Agent(model=build_model(),          # 指向正在训练的策略模型
+                      system_prompt=POLICY_PROMPT,
+                      tools=env.tools())
+        run_dialog(agent, UserSimulator(task), max_turns=20)
+        return {"reward": score(env, task)}         # 规则验证 + 有界塑形
+    except Exception:
+        return {"reward": -1.5}                     # 永远返回奖励，否则整个训练任务会失败</code></pre>
+
+<h2>7. 指标</h2>
+<table>
+<tr><th>指标</th><th>定义</th><th>用途</th></tr>
+<tr><td>pass^1</td><td>隐藏集单次成功率，temperature 按服务设置</td><td>主指标</td></tr>
+<tr><td>pass^4</td><td>同一任务跑 4 次全部成功的比例</td><td>稳定性；客服场景比 pass@k 更重要</td></tr>
+<tr><td>违规率</td><td>出现任何政策违规的轨迹占比</td><td>安全性</td></tr>
+<tr><td>完成率</td><td>正常结束（未超时、未崩溃）的轨迹占比，单独报告</td><td>避免把“没跑完”算成“能力差”</td></tr>
+<tr><td>平均回合数 / token 数 / p50 延迟</td><td>来自 AgentCore traces</td><td>效率</td></tr>
+<tr><td>每千任务成本</td><td>推理 token 成本 + Runtime 费用</td><td>验证 H3</td></tr>
+</table>
+<p>统计方法：每组在隐藏集上跑 3 次（不同 seed），报告均值和 bootstrap 95% 置信区间；RL 组至少跑 2 个独立训练种子。</p>
+
+<h2>8. 执行步骤（约 3 周）</h2>
+<div class="phase"><span class="pill">第 1 周 · 环境</span>：实现 ShopEnv、工具、政策、奖励函数和单调性测试；用 Bedrock 前沿模型合成任务并人工抽检；本地跑通 A0 和 A1 各 20 条。</div>
+<div class="phase"><span class="pill">部署与冒烟测试</span>：创建两个 IAM 角色。训练任务角色信任 <code>job.sagemaker.amazonaws.com</code>，同时允许 <code>sts:AssumeRole</code> 和 <code>sts:TagSession</code>；Runtime 角色附加 <code>AmazonSageMakerJobRuntimeAccess</code>。执行 <code>agentcore deploy</code>，用带假 job ARN 的 payload 做冒烟测试，日志里出现 “Could not find job” 说明链路是通的。</div>
+<div class="phase"><span class="pill">第 2 周 · 基线、SFT 与 RL</span>：用评测任务跑 A0、A1、A2；收集 A0 的成功轨迹训练 A3；启动 A4、A5、A5′ 的多轮 RL 任务，先用 100 步、每步 128×8 的规模。在 MLflow 盯 <code>val/reward/pass_at_1</code>、奖励方差和有效工具调用率。训练期间<b>不要重新部署智能体</b>，否则整个任务会失败。</div>
+<div class="phase"><span class="pill">第 3 周 · 评测与分析</span>：所有组在冻结的隐藏集上按服务参数评测 3 次；每组读 30 条失败轨迹做错误分类；出报告。</div>
+
+<h2>9. 预算估算</h2>
+<table>
+<tr><th>项目</th><th>估算</th><th>依据</th></tr>
+<tr><td>每个 RL 训练任务</td><td>约 $400–$1,500</td><td>Wordle 公开实验：训练 token $339 + Runtime $79。客服轨迹更长，按约 2–4 倍 token 放大</td></tr>
+<tr><td>3 个 RL 任务（A4、A5、A5′）</td><td>约 $1,200–$4,500</td><td></td></tr>
+<tr><td>评测任务</td><td>几十美元</td><td>Wordle 128 题评测约 $1.2 / 次</td></tr>
+<tr><td>Bedrock（任务合成 + A0 + 评审）</td><td>几百美元</td><td>取决于所选模型和轨迹长度</td></tr>
+</table>
+<p class="mut">以上是量级估算。可以用第 09 课的成本估算器代入实际轨迹长度，价格以当前定价页为准。</p>
+
+<h2>10. B 线：完全自建（需要全参数或算法消融时）</h2>
+<div class="card">
+<p>同一份 Strands 智能体仍然部署在 AgentCore Runtime，用开源的 AgentCore RL Toolkit（<code>pip install 'agentcore-rl-toolkit[core]'</code>）把模型调用接到它的 rollout 网关，训练后端选 verl 或 slime，跑在 SageMaker HyperPod 或 Amazon EKS 的 GPU 集群上。这条线还能做：</p>
+<ul><li>GRPO、DAPO、GSPO 的算法消融；</li><li>全参数与 LoRA 对比；</li><li>同步与异步 rollout 的每 GPU 小时收益对比；</li><li>以 A3 的 SFT 检查点为起点做 RL。</li></ul>
+<p class="mut">代价：需要自己管理 GPU 集群、权重同步、vLLM / SGLang 服务和训练稳定性。</p>
+</div>
+
+<h2>11. 风险与对策</h2>
+<table>
+<tr><th>风险</th><th>对策</th></tr>
+<tr><td>奖励作弊，例如什么都转人工以规避违规</td><td>对 <code>transfer_to_human</code> 设条件化奖励：只有政策要求转人工时才算成功</td></tr>
+<tr><td>工具调用格式漂移，梯度消失</td><td>降低学习率；从纯文本中恢复工具调用并给小幅格式惩罚；监控有效调用率</td></tr>
+<tr><td>高并发下凭证刷新失败（403）</td><td>使用单个可自动刷新的会话、短缓存，遇到 403 时重新签名（博客中的踩坑）</td></tr>
+<tr><td>验证曲线低估真实能力</td><td>按服务时的 temperature 和推理强度单独跑评测任务</td></tr>
+<tr><td>任务泄漏或训练数据污染</td><td>隐藏集在训练前冻结；合成任务与公开 benchmark 去重</td></tr>
+<tr><td>用户模拟器偏差</td><td>所有组共用同一个模拟器；隐藏集再换一个模拟器复测一次</td></tr>
+</table>
+
+<h2>参考资料</h2>
+<ul>
+<li><a href="https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/">Multi-Turn Reinforcement Learning on Amazon SageMaker AI: A hands-on guide</a></li>
+<li><a href="https://github.com/aws-samples/sample-multi-turn-rl-wordle">aws-samples/sample-multi-turn-rl-wordle</a></li>
+<li><a href="https://github.com/awslabs/agentcore-rl-toolkit">awslabs/agentcore-rl-toolkit</a> · <a href="https://awslabs.github.io/agentcore-rl-toolkit/blog/data-synthesis-v0/">从环境合成可验证任务</a></li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Amazon Bedrock 强化微调文档</a></li>
+<li><a href="https://aws.amazon.com/about-aws/whats-new/2026/06/multi-turn-reinforcement-learning-on-sagemaker-ai/">SageMaker AI 多轮 RL 发布公告</a></li>
+</ul>
+</main>
+<script src="assets/common.js"></script>
+<script>
+const info={
+s3:'<b>Amazon S3</b>：存放 JSONL 任务集。每行一个 <code>prompt</code> 字符串，服务原样传给智能体，所以可以在里面打包任务 JSON（用户画像、目标状态、id）。目标状态只给环境和奖励函数用，策略模型看不到。',
+mtrl:'<b>SageMaker AI 多轮 RL</b>：serverless，选好底座模型后服务自动准备训练和采样资源。按 prefill、生成、训练三类 token 计费。关键超参：global_batch_size、group_size、sampling_max_tokens、max_steps。需要一个 MLflow 应用记录指标。',
+acr:'<b>AgentCore Runtime</b>：每个 rollout 是一个独立会话，跑在独立的 microVM 里，会话结束即销毁，天然满足 RL 的隔离和可复位要求。智能体、环境和奖励函数放在同一份代码里部署。',
+mlf:'<b>SageMaker MLflow</b>：每步记录奖励、token 和回合统计，按 val_every 跑验证。重点看 val/reward/pass_at_1。',
+cw:'<b>CloudWatch / OpenTelemetry</b>：AgentCore 记录每个模型回合和工具调用的 trace，用来读轨迹、找奖励作弊、统计回合数和延迟。',
+br:'<b>Amazon Bedrock</b>：前沿模型承担三个角色：A0 参照上限、生成 SFT 轨迹的教师、小权重的 LLM 评审。也用来合成训练任务。',
+pkg:'<b>模型包</b>：训练完成后输出 LoRA 模型包。用 AgentRFTEvaluation 类型的评测任务在同一个 Runtime 和奖励下评测，再部署到推理端点。'};
+$$('#expsvg .node').forEach(g=>g.addEventListener('click',()=>{$$('#expsvg .node').forEach(x=>x.classList.remove('hi'));g.classList.add('hi');$('#exp-info').innerHTML=info[g.dataset.k]}));
+</script>
+</body></html>

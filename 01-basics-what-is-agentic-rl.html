@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 什么是 Agentic RL</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><main>
+<span class="badge lv-basic">基础班 · 01</span>
+<h1>什么是 Agentic RL</h1>
+<p class="lead">目标：用 10 分钟建立直觉，知道它和 SFT、普通 RLHF 有什么不同，为什么最近两年突然变得重要。</p>
+
+<h2>1. 强化学习的四个基本概念</h2>
+<p>强化学习研究的是“通过试错学习做决策”。有四个基本对象：</p>
+<div class="grid g4">
+<div class="card"><div class="kpi">状态 s</div>智能体此刻能看到的信息</div>
+<div class="card"><div class="kpi">动作 a</div>智能体做出的选择</div>
+<div class="card"><div class="kpi">奖励 r</div>环境对结果的打分</div>
+<div class="card"><div class="kpi">策略 π</div>“看到 s 时选 a 的概率”</div>
+</div>
+<p>学习目标只有一句话：<b>调整策略，让长期累计奖励的期望最大</b>，写成 <code>J(θ) = E<sub>τ∼π<sub>θ</sub></sub>[R(τ)]</code>，τ 是一条完整的交互轨迹。</p>
+
+<h2>2. 把大模型放进这个框架</h2>
+<table>
+<tr><th>RL 概念</th><th>在 LLM 智能体里对应什么</th></tr>
+<tr><td>状态</td><td>到目前为止的全部上下文：系统提示、用户任务、之前的思考、工具调用和返回</td></tr>
+<tr><td>动作</td><td>模型生成的下一个 token；若干 token 组成一次“回合动作”（一段思考 + 一次工具调用）</td></tr>
+<tr><td>环境转移</td><td>工具被真正执行，结果拼回上下文。这一步不由模型控制，可能出错，也可能有随机性</td></tr>
+<tr><td>奖励</td><td>通常在任务结束时给一次（办成没有），也可以在中间回合给</td></tr>
+<tr><td>策略</td><td>模型参数 θ 本身。训练就是改 θ</td></tr>
+</table>
+<div class="tip"><b>策略梯度的直觉：</b>让“比平均水平好”的轨迹里那些 token 的概率变大，让“比平均差”的变小。后面所有算法，都是在回答“怎么算出‘比平均好多少’（叫优势 A）”和“怎么稳定地更新参数”。</div>
+
+<h2>3. 动手：切换单轮和多轮</h2>
+<div class="card">
+<div class="flex"><button class="btn on" id="m-single">单轮 RL</button><button class="btn" id="m-multi">Agentic RL（多轮）</button></div>
+<div id="mode-box" style="margin-top:10px"></div>
+</div>
+
+<h2>4. 为什么它现在变得重要</h2>
+<ol>
+<li><b>可验证奖励跑通了。</b>DeepSeek-R1 证明只用“答案对不对”的规则奖励加上 GRPO，就能让模型自己学出长链推理。把“答案对不对”换成“任务办成没有”，就是 Agentic RL。</li>
+<li><b>智能体的瓶颈在决策，不在知识。</b>模型知道每个 API 怎么用，但不知道在你的业务里先查什么、什么时候停、违反政策时要拒绝。这些只能从结果反馈中学。</li>
+<li><b>小模型经过 RL 能在垂直任务上追上大模型。</b>AWS 开源的 AgentCore RL Toolkit 公开结果：Qwen3-30B-A3B 在 τ²-Bench Telecom 客服任务上从 38% 提升到 96%（SFT + RL）；Java 代码迁移任务从 43% 提升到 76%。推理更便宜，也能私有化部署。</li>
+<li><b>基础设施成熟了。</b>开源框架（verl、slime、SkyRL 等）和托管服务（SageMaker AI 多轮 RL、Bedrock RFT 等）把门槛从“自研分布式 RL 系统”降到了“写环境和奖励函数”。</li>
+</ol>
+
+<h2>5. 小测验</h2>
+<div class="quiz" data-answer="2"><b>下面哪个任务最适合用 Agentic RL？</b><br>
+<button class="btn opt">A. 把一段英文翻译成中文，有大量人工译文</button>
+<button class="btn opt">B. 给一张图片写一句描述</button>
+<button class="btn opt">C. 智能体在工单系统里多步查询、按政策办理退货，结果可以用数据库状态判定</button>
+<div class="qe">正确答案 C。A 有大量标准答案，SFT 更直接；B 是单轮任务，且难以自动判定好坏；C 是多步决策、无标准轨迹、结果可程序验证，正好是 Agentic RL 的适用条件。</div></div>
+<div class="quiz" data-answer="1"><b>Agentic RL 训练时，需要给模型提供“标准的正确操作轨迹”吗？</b><br>
+<button class="btn opt">A. 需要，否则模型不知道怎么做</button>
+<button class="btn opt">B. 不需要，只需要任务、环境和判定结果的打分器</button>
+<div class="qe">正确答案 B。轨迹由模型自己和环境交互产生，只需要能判断结果好坏。这正是它比 SFT 更适合“正确做法不唯一”的任务的原因。不过如果模型一开始完全不会，通常会先用少量示范做 SFT 冷启动（见第 05 课）。</div></div>
+</main>
+<script src="assets/common.js"></script>
+<script>
+const modes={
+single:`<div class="grid g2"><div><b>形式：</b>上下文赌博机。一个 prompt → 一个回答 → 一个分数。<br><b>状态转移：</b>没有，回答完就结束。<br><b>信用分配：</b>整段回答共享一个分数，问题不大。<br><b>典型：</b>数学题、代码题、Bedrock RFT、OpenAI RFT。</div>
+<div class="card"><span class="tok t-usr">用户：求 17×23</span> → <span class="tok t-gen">思考……答案 391</span> → <span class="tok t-tool">验证器：正确，r=1</span></div></div>`,
+multi:`<div class="grid g2"><div><b>形式：</b>部分可观测马尔可夫决策过程（POMDP）。模型只能看到工具返回的信息，看不到环境全貌。<br><b>状态转移：</b>每次工具调用都会改变环境（文件、数据库、网页），结果可能出错。<br><b>信用分配：</b>最终成败要归因到几十个回合中的某几步，难。<br><b>新增难点：</b>上下文膨胀、轨迹时长长尾、沙箱隔离、工具输出不能参与训练。</div>
+<div class="card"><span class="tok t-usr">用户：把订单 88 的鞋换成 42 码</span><br>→ <span class="tok t-gen">调用 get_order(88)</span> → <span class="tok t-tool">已发货 12 天，41 码</span><br>→ <span class="tok t-gen">查政策：可换</span> → <span class="tok t-gen">向用户确认</span> → <span class="tok t-usr">好的</span><br>→ <span class="tok t-gen">exchange_items(88, 42)</span> → <span class="tok t-tool">成功</span><br>→ <span class="tok t-tool">验证器：数据库状态正确，r=1</span></div></div>`};
+function setMode(k){$('#mode-box').innerHTML=modes[k]}
+seg([$('#m-single'),$('#m-multi')],b=>setMode(b.id==='m-single'?'single':'multi'));setMode('single');
+</script>
+</body></html>

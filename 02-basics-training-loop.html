@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 一次训练迭代</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><main>
+<span class="badge lv-basic">基础班 · 02</span>
+<h1>一次训练迭代</h1>
+<p class="lead">目标：看清楚 Agentic RL 训练的完整闭环，知道时间花在哪里。点“下一步”逐步走一遍。</p>
+
+<div class="card">
+<svg viewBox="0 0 960 300" width="100%" id="loopsvg">
+<g class="node" id="n0"><rect x="10" y="120" width="130" height="56" rx="10"/><text x="75" y="145" text-anchor="middle">任务池</text><text x="75" y="163" text-anchor="middle" style="font-size:11px;fill:var(--mut)">题面 + 隐藏判定信息</text></g>
+<g class="node" id="n1"><rect x="190" y="30" width="150" height="56" rx="10"/><text x="265" y="55" text-anchor="middle">策略模型 πθ</text><text x="265" y="73" text-anchor="middle" style="font-size:11px;fill:var(--mut)">推理引擎 vLLM/SGLang</text></g>
+<g class="node" id="n2"><rect x="190" y="210" width="150" height="56" rx="10"/><text x="265" y="235" text-anchor="middle">智能体 + 环境</text><text x="265" y="253" text-anchor="middle" style="font-size:11px;fill:var(--mut)">工具 / 沙箱 / 状态</text></g>
+<g class="node" id="n3"><rect x="400" y="120" width="140" height="56" rx="10"/><text x="470" y="145" text-anchor="middle">轨迹采集</text><text x="470" y="163" text-anchor="middle" style="font-size:11px;fill:var(--mut)">token / logprob / mask</text></g>
+<g class="node" id="n4"><rect x="590" y="30" width="140" height="56" rx="10"/><text x="660" y="55" text-anchor="middle">奖励 / 验证器</text><text x="660" y="73" text-anchor="middle" style="font-size:11px;fill:var(--mut)">规则 / 测试 / LLM 评审</text></g>
+<g class="node" id="n5"><rect x="590" y="210" width="140" height="56" rx="10"/><text x="660" y="235" text-anchor="middle">优势估计</text><text x="660" y="253" text-anchor="middle" style="font-size:11px;fill:var(--mut)">组内比较 (GRPO)</text></g>
+<g class="node" id="n6"><rect x="790" y="120" width="160" height="56" rx="10"/><text x="870" y="145" text-anchor="middle">训练引擎更新 θ</text><text x="870" y="163" text-anchor="middle" style="font-size:11px;fill:var(--mut)">+ 权重同步</text></g>
+<path class="edge" id="e0" d="M140,140 C160,100 170,70 190,60"/>
+<path class="edge" id="e1" d="M280,86 L280,210"/><path class="edge" id="e1b" d="M250,210 L250,86"/>
+<path class="edge" id="e2" d="M340,238 C370,220 380,180 400,160"/>
+<path class="edge" id="e3" d="M540,140 C560,100 570,70 590,60"/>
+<path class="edge" id="e4" d="M660,86 L660,210"/>
+<path class="edge" id="e5" d="M730,238 C760,220 770,180 790,160"/>
+<path class="edge" id="e6" d="M870,120 C860,10 400,0 340,50"/>
+</svg>
+<div class="flex"><button class="btn" id="lp-prev">上一步</button><button class="btn on" id="lp-next">下一步</button><button class="btn" id="lp-reset">重置</button><span class="mut" id="lp-cnt"></span></div>
+<div id="lp-text" style="margin-top:8px;min-height:80px"></div>
+</div>
+
+<h2>时间花在哪里</h2>
+<p>以 AWS 博客公开的 Wordle 多轮 RL 实验为例：100 个训练步，一共玩了 105,486 局游戏，耗时 12 小时 40 分钟。真正的梯度更新只占其中一部分，大部分墙钟时间在<b>和环境交互</b>上。SWE 类任务一条轨迹可能跑几十分钟，这个比例更极端。</p>
+<div class="tip">所以 Agentic RL 的工程重心在 <b>rollout 侧</b>：并发沙箱、超时与重试、异步调度。这是它和单轮 RL 在系统上的最大区别，第 07 课会展开。</div>
+
+<h2>关键术语</h2>
+<table>
+<tr><th>术语</th><th>含义</th></tr>
+<tr><td>Rollout</td><td>用当前策略完整跑一遍任务，得到一条轨迹</td></tr>
+<tr><td>Group size（G）</td><td>同一任务采样几条轨迹用于互相比较，常见 8–16</td></tr>
+<tr><td>Global batch</td><td>每个训练步取多少个任务，例如 128。每步轨迹数 = batch × G</td></tr>
+<tr><td>Verifier（验证器）</td><td>判定任务是否成功的程序，轨迹结束后才运行，对模型不可见</td></tr>
+<tr><td>Weight sync</td><td>把训练后的新权重同步到推理引擎</td></tr>
+<tr><td>LoRA</td><td>只训练少量低秩适配器参数，托管服务普遍采用，成本低</td></tr>
+</table>
+
+<div class="quiz" data-answer="1"><b>每步 128 个任务、group size 为 8，一个训练步要跑多少条轨迹？</b><br>
+<button class="btn opt">A. 128</button><button class="btn opt">B. 1,024</button><button class="btn opt">C. 16</button>
+<div class="qe">正确答案 B：128 × 8 = 1,024。这就是 Agentic RL 需要大规模并发沙箱的原因。</div></div>
+</main>
+<script src="assets/common.js"></script>
+<script>
+const steps=[
+{n:['n0'],e:[],t:'<b>① 取一批任务。</b>例如 128 个任务，每个任务稍后采样 G=8 条轨迹，共 1,024 条。任务只需要题面和判定成功所需的隐藏信息，不需要标准答案轨迹。'},
+{n:['n0','n1'],e:['e0'],t:'<b>② 用当前策略开始采样。</b>推理引擎加载最新权重，智能体发出第一次模型请求。'},
+{n:['n1','n2'],e:['e1','e1b'],t:'<b>③ 多轮交互。</b>模型输出思考和工具调用，环境执行工具并返回结果，结果拼回上下文后再调用模型，直到给出最终答复或达到回合上限。这一步占绝大部分时间。'},
+{n:['n2','n3'],e:['e2'],t:'<b>④ 记录轨迹。</b>保存采样时的原始 token id、每个 token 的 logprob，以及 loss mask（哪些 token 是模型生成的，哪些是工具返回）。'},
+{n:['n3','n4'],e:['e3'],t:'<b>⑤ 计算奖励。</b>轨迹结束后运行验证器：检查数据库状态、跑单元测试，或调用 LLM 评审。'},
+{n:['n4','n5'],e:['e4'],t:'<b>⑥ 估计优势。</b>同一任务的 8 条轨迹互相比较，比组内平均好的得正优势，差的得负优势。全部一样的组没有学习信号。'},
+{n:['n5','n6'],e:['e5'],t:'<b>⑦ 梯度更新。</b>按 GRPO 等目标函数，只对模型生成的 token 计算损失，更新参数（全参数或 LoRA）。'},
+{n:['n6','n1'],e:['e6'],t:'<b>⑧ 权重同步。</b>新权重推给推理引擎，进入下一步。同步模式下所有 rollout 用同一版本；异步模式允许用落后 1–k 个版本的权重继续采样。'}];
+let li=0;
+function draw(){$$('#loopsvg .node').forEach(g=>g.classList.remove('hi'));$$('#loopsvg .edge').forEach(g=>g.classList.remove('hi'));
+const s=steps[li];s.n.forEach(i=>$('#'+i).classList.add('hi'));s.e.forEach(i=>$('#'+i).classList.add('hi'));$('#lp-text').innerHTML=s.t;$('#lp-cnt').textContent=`步骤 ${li+1} / ${steps.length}`}
+$('#lp-next').onclick=()=>{li=(li+1)%steps.length;draw()};$('#lp-prev').onclick=()=>{li=(li-1+steps.length)%steps.length;draw()};$('#lp-reset').onclick=()=>{li=0;draw()};draw();
+</script>
+</body></html>

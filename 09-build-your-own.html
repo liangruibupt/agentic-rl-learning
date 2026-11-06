@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>09 客户自建</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><main>
+<span class="badge lv-prac">落地班 · 09</span>
+<h1>客户自建：路线、选型与成本</h1>
+<p class="lead">目标：能判断客户该走托管还是自建，给出分阶段路线和成本量级。</p>
+
+<h2>1. 选型向导</h2>
+<div class="card" id="wizard">
+<p><b>Q1. 任务形态？</b><br>
+<button class="btn" data-q="1" data-v="single">单轮：一次输入一次输出</button>
+<button class="btn" data-q="1" data-v="multi">多轮：智能体调用工具、与环境交互</button></p>
+<p><b>Q2. 对模型和算法的控制要求？</b><br>
+<button class="btn" data-q="2" data-v="managed">托管支持的模型 + LoRA 即可</button>
+<button class="btn" data-q="2" data-v="full">需要任意开源模型 / 全参数 / 自定义算法</button></p>
+<p><b>Q3. 团队有 GPU 集群运维和分布式训练经验吗？</b><br>
+<button class="btn" data-q="3" data-v="no">没有或很少</button>
+<button class="btn" data-q="3" data-v="yes">有</button></p>
+<div id="wz-res" class="card" style="background:var(--panel2)">请回答以上三个问题。</div>
+</div>
+
+<h2>2. 自建路线图（不管走哪条路都要经过）</h2>
+<div class="phase"><span class="pill">P0 适配性评估（约 1 周）</span>：任务能否自动判定成功？基础模型基线成功率是否在 5%–95% 之间？是否有几百到几千个多样的任务？任何一个答案是“否”，先别做 RL。</div>
+<div class="phase"><span class="pill">P1 环境工程（2–4 周，工作量最大）</span>：可复位的沙箱、模拟或只读的工具后端、任务生成器、对模型隐藏的验证器。不能直接拿生产系统给 RL 打：上千条并发轨迹会压垮下游，而且写操作有真实副作用。</div>
+<div class="phase"><span class="pill">P2 奖励函数（约 1 周，持续迭代）</span>：结果主导 + 有界塑形；为奖励写单调性测试；人工读 50 条轨迹。</div>
+<div class="phase"><span class="pill">P3 冷启动 SFT（按需）</span>：用前沿模型跑出成功轨迹做蒸馏，修复格式和基本能力。</div>
+<div class="phase"><span class="pill">P4 RL 训练</span>：从小规模开始（Bedrock 建议先用 100–200 条样本验证奖励）；group size 8–16；监控奖励均值与方差、熵、有效工具调用率、轨迹长度。</div>
+<div class="phase"><span class="pill">P5 评测</span>：独立的隐藏测试集；按<b>实际服务时的解码参数</b>评测；报告 pass^k 衡量稳定性；完成率单独报告。</div>
+<div class="phase"><span class="pill">P6 部署与持续学习</span>：线上 trace 回流生成新任务；训练和部署用同一份智能体代码，避免“训的不是上线的”。</div>
+
+<h2>3. 成本估算器（托管多轮 RL，按 token 计费）</h2>
+<div class="card">
+<p class="mut">默认值取自 AWS 博客公开的 Wordle 实验（gpt-oss-20b，us-east-1 发布时的列表价）：100 步，每步 128 个任务 × 8 条轨迹，平均每条轨迹约 4.7k prefill、1.5k 生成、6.1k 训练 token。换成你的任务估计值。</p>
+<div class="grid g4" id="cost-in"></div>
+<div id="cost-out" class="res" style="margin-top:10px"></div>
+</div>
+<div class="tip">训练 token 成本通常最大，并且随轨迹长度增长。缩短轨迹（限制回合数、截断旧工具输出、降低推理强度）是最直接的省钱方式。博客中 low 推理强度比 medium 少用 63%–83% 的生成 token。</div>
+
+<h2>4. 自建 GPU 的经验量级（仅供估算）</h2>
+<div class="grid g2">
+<div class="card"><ul>
+<li>≤32B 模型做 LoRA RL：单节点 8×H100/H200 级别通常可以起步，推理和训练共置。</li>
+<li>30B–70B 全参数或大 MoE：通常 2–8 个节点，推理和训练分离部署。</li>
+<li>Rollout 沙箱是 CPU 资源，单独弹性扩缩；SWE 类任务上千并发很常见。</li>
+<li>实际需求和轨迹长度、上下文长度、并行策略强相关，一定先做小规模压测。</li>
+</ul></div>
+<div class="card"><b>团队配置</b><ul>
+<li>环境工程师 1–2 人：沙箱、工具模拟、任务生成。最容易被低估。</li>
+<li>RL / 训练工程师 1 人：托管路线可以兼职。</li>
+<li>领域专家：定义成功标准、审轨迹。</li>
+<li>评测负责人：隐藏集、统计显著性、防数据污染。</li>
+</ul></div>
+</div>
+
+<h2>5. 客户常问</h2>
+<details><summary>我们已经有在线跑的智能体，能直接用线上数据训练吗？</summary><p>线上 trace 适合用来<b>生成任务</b>和做 SFT，但不能直接当 RL 数据：RL 需要用当前策略重新和环境交互。正确做法是把线上会话转成“初始状态 + 目标”的任务，在沙箱环境里重放。</p></details>
+<details><summary>RL 会不会让模型通用能力下降？</summary><p>可能会，尤其是全参数训练和高学习率。LoRA、KL 约束、混入通用任务、在通用基准上做回归测试，都可以控制这个风险。</p></details>
+<details><summary>多久能看到效果？</summary><p>托管路线下，环境和奖励就绪后，一次训练通常是小时级（Wordle 示例约 12.7 小时）。真正的时间成本在 P1 环境工程。</p></details>
+<details><summary>和提示词工程、SFT 比，RL 的边界在哪？</summary><p>先做提示词优化和 SFT，它们更便宜。RL 适合“知道什么是好结果，但说不清正确步骤”的任务，以及需要在稳定性（pass^k）上进一步提升的场景。</p></details>
+</main>
+<script src="assets/common.js"></script>
+<script>
+const ans={};
+$$('#wizard [data-q]').forEach(b=>b.addEventListener('click',()=>{$$(`#wizard [data-q="${b.dataset.q}"]`).forEach(x=>x.classList.remove('on'));b.classList.add('on');ans[b.dataset.q]=b.dataset.v;wz()}));
+function wz(){if(!ans[1]||!ans[2]||!ans[3]){$('#wz-res').innerHTML='请回答全部三个问题。';return}let r;
+if(ans[2]==='full'&&ans[3]==='yes')r='<b>推荐：自建</b>。智能体部署在 AgentCore Runtime，用 AgentCore RL Toolkit 的 rollout 网关接入 verl 或 slime，训练跑在 SageMaker HyperPod 或 Amazon EKS。可以用任意开源模型、全参数训练、做算法消融。';
+else if(ans[2]==='full')r=`<b>推荐：先托管验证，再半托管</b>。先用 ${ans[1]==='single'?'Bedrock RFT':'SageMaker AI 多轮 RL'} 验证奖励和收益；确实需要更多控制时，用 AgentCore RL Toolkit 加 Tinker 或 SageMaker Training Sessions 这类托管训练后端，避免自己运维 GPU 集群。`;
+else if(ans[1]==='single')r='<b>推荐：Amazon Bedrock RFT</b>。单轮任务加 Lambda 奖励函数，全托管 GRPO，不用管理基础设施。基线接近 0% 时先做 SFT。';
+else r='<b>推荐：SageMaker AI 多轮 RL + AgentCore Runtime</b>。把现有的 Strands 或 LangGraph 智能体部署到 AgentCore，在轨迹结束时上报奖励，按 token 计费，不需要 GPU 集群。第 10 课的实验就按这条路线设计。';
+$('#wz-res').innerHTML=r}
+const ci=[['steps','训练步数',100],['batch','每步任务数',128],['group','每任务轨迹数 G',8],['pre','每轨迹 prefill tokens',4660],['sam','每轨迹生成 tokens',1514],['trn','每轨迹训练 tokens',6099],['pp','prefill $ / 1M',0.12],['ps','生成 $ / 1M',0.30],['pt','训练 $ / 1M',0.36],['rt','Runtime $ / 千条轨迹',0.75]];
+$('#cost-in').innerHTML=ci.map(([k,l,v])=>`<div><label class="sl">${l}</label><input type="number" step="any" id="c-${k}" value="${v}"></div>`).join('');
+function cost(){const g=k=>+$('#c-'+k).value||0,n=g('steps')*g('batch')*g('group');
+const p=n*g('pre')/1e6*g('pp'),s=n*g('sam')/1e6*g('ps'),t=n*g('trn')/1e6*g('pt'),r=n/1000*g('rt');
+$('#cost-out').innerHTML=`总轨迹数 <b>${n.toLocaleString()}</b> · prefill $${p.toFixed(0)} · 生成 $${s.toFixed(0)} · 训练 $${t.toFixed(0)} · AgentCore Runtime $${r.toFixed(0)}<br>合计约 <span class="kpi">$${(p+s+t+r).toFixed(0)}</span><br><span class="mut">Runtime 单价由公开实验的约 $79 / 105,486 条轨迹折算，实际取决于每条轨迹占用的 vCPU 和内存时长。价格以当前定价页为准。</span>`}
+$$('#cost-in input').forEach(i=>i.oninput=cost);cost();
+</script>
+</body></html>
