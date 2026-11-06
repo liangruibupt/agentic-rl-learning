@@ -11,6 +11,7 @@ const PAGES = [
   { f: '08-landscape.html', t: '08 前沿玩家与方案', lv: '进阶班' },
   { f: '09-build-your-own.html', t: '09 客户自建', lv: '落地班' },
   { f: '10-aws-experiment.html', t: '10 AWS 实验设计', lv: '落地班' },
+  { f: '11-lab-bedrock-rft.html', t: '11 实操：Bedrock RFT', lv: '落地班' },
 ];
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
