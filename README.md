@@ -21,6 +21,7 @@
 | 进阶班 | [08 前沿玩家与方案](08-landscape.html) | 前沿实验室、开源框架、托管服务、环境与评测 | 分类筛选 |
 | 落地班 | [09 客户自建](09-build-your-own.html) | 选型、P0–P6 路线图、团队配置、常见问题 | 选型向导、成本估算器 |
 | 落地班 | [10 AWS 实验设计](10-aws-experiment.html) | 用 AgentCore + SageMaker AI 多轮 RL + Bedrock 设计一个可复现实验 | 可点击架构图 |
+| 落地班 | [11 实操：Bedrock RFT 单轮 RL](11-lab-bedrock-rft.html) | 准备数据、写奖励 Lambda、提交 GRPO 任务、看懂训练指标、对比基线（代码见 [labs/bedrock-rft](labs/bedrock-rft)） | 流程步进、奖励函数实验台、训练曲线诊断 |
 
 ## AWS 实验概要（第 10 课）
 
