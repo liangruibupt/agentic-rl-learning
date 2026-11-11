@@ -1,0 +1,2256 @@
+[
+ {
+  "defects": [],
+  "hard_negative": "policy_numbers",
+  "scenario": "account",
+  "id": "h001",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "H10536",
+  "extra_order_id": "F64912",
+  "turns": 8,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "proper_refusal",
+  "scenario": "out_of_policy_refusal",
+  "id": "h002",
+  "persona": "替公司采购、语气公事公办的用户",
+  "order_id": "R51761",
+  "extra_order_id": "F77566",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "id": "h003",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "Z99204",
+  "extra_order_id": "X83304",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "id": "h004",
+  "persona": "犹豫不决、反复改主意的用户",
+  "order_id": "M61658",
+  "extra_order_id": "E73114",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "process_promise",
+  "scenario": "shipping_status",
+  "id": "h005",
+  "persona": "着急赶时间的上班族，句子很短",
+  "order_id": "G18827",
+  "extra_order_id": "G67753",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h006",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "K88738",
+  "extra_order_id": "D23419",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "plain",
+  "scenario": "refund",
+  "id": "h007",
+  "persona": "替公司采购、语气公事公办的用户",
+  "order_id": "F80335",
+  "extra_order_id": "E57659",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a",
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "exchange",
+  "id": "h008",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "Z37256",
+  "extra_order_id": "R59313",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h009",
+  "persona": "幽默随意、爱用语气词的用户",
+  "order_id": "H55533",
+  "extra_order_id": "R57731",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h010",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "E73972",
+  "extra_order_id": "N72966",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h011",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "E28889",
+  "extra_order_id": "E54909",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "plain",
+  "scenario": "out_of_policy_refusal",
+  "id": "h012",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "Z31160",
+  "extra_order_id": "P13027",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "id": "h013",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "K29215",
+  "extra_order_id": "W81194",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "ok_summary",
+  "scenario": "partial_refund",
+  "id": "h014",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "H94268",
+  "extra_order_id": "Z21928",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h015",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "K31894",
+  "extra_order_id": "K39201",
+  "turns": 8,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "ok_summary",
+  "scenario": "partial_refund",
+  "id": "h016",
+  "persona": "幽默随意、爱用语气词的用户",
+  "order_id": "G90377",
+  "extra_order_id": "X35578",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h017",
+  "persona": "犹豫不决、反复改主意的用户",
+  "order_id": "W39719",
+  "extra_order_id": "G77847",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "expedite",
+  "id": "h018",
+  "persona": "中英夹杂说话的海归",
+  "order_id": "W13798",
+  "extra_order_id": "D46623",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "exchange",
+  "id": "h019",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "G89316",
+  "extra_order_id": "K68619",
+  "turns": 8,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "id": "h020",
+  "persona": "中英夹杂说话的海归",
+  "order_id": "E38896",
+  "extra_order_id": "E39733",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.0,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h021",
+  "persona": "只回一两个字的学生",
+  "order_id": "K36787",
+  "extra_order_id": "N91797",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h022",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "T55089",
+  "extra_order_id": "X94296",
+  "turns": 4,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e",
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "account",
+  "id": "h023",
+  "persona": "幽默随意、爱用语气词的用户",
+  "order_id": "E60926",
+  "extra_order_id": "X36125",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "exchange",
+  "id": "h024",
+  "persona": "情绪激动、带点抱怨的年轻人",
+  "order_id": "M93341",
+  "extra_order_id": "K21370",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "policy_numbers",
+  "scenario": "refund",
+  "id": "h025",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "M21130",
+  "extra_order_id": "W30821",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "exchange",
+  "id": "h026",
+  "persona": "情绪激动、带点抱怨的年轻人",
+  "order_id": "D29811",
+  "extra_order_id": "R70994",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "process_promise",
+  "scenario": "account",
+  "id": "h027",
+  "persona": "替公司采购、语气公事公办的用户",
+  "order_id": "Z88101",
+  "extra_order_id": "N96149",
+  "turns": 8,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h028",
+  "persona": "情绪激动、带点抱怨的年轻人",
+  "order_id": "P81864",
+  "extra_order_id": "F12804",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "plain",
+  "scenario": "account",
+  "id": "h029",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "T23470",
+  "extra_order_id": "P28251",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "id": "h030",
+  "persona": "只回一两个字的学生",
+  "order_id": "Z37661",
+  "extra_order_id": "D43008",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "policy_numbers",
+  "scenario": "exchange",
+  "id": "h031",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "P41527",
+  "extra_order_id": "X86865",
+  "turns": 8,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h032",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "P64920",
+  "extra_order_id": "Z27180",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "expedite",
+  "id": "h033",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "K70052",
+  "extra_order_id": "T86460",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "shipping_status",
+  "id": "h034",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "F79707",
+  "extra_order_id": "F78617",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "policy_numbers",
+  "scenario": "refund",
+  "id": "h035",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "X34000",
+  "extra_order_id": "R10515",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h036",
+  "persona": "情绪激动、带点抱怨的年轻人",
+  "order_id": "F72061",
+  "extra_order_id": "R25772",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a",
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h037",
+  "persona": "中英夹杂说话的海归",
+  "order_id": "T77941",
+  "extra_order_id": "P82802",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.1,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "ok_summary",
+  "scenario": "refund",
+  "id": "h038",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "P17447",
+  "extra_order_id": "G35074",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h039",
+  "persona": "着急赶时间的上班族，句子很短",
+  "order_id": "X22811",
+  "extra_order_id": "P69267",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h040",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "N52678",
+  "extra_order_id": "R76263",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "plain",
+  "scenario": "partial_refund",
+  "id": "h041",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "H69289",
+  "extra_order_id": "P79898",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "process_promise",
+  "scenario": "exchange",
+  "id": "h042",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "G78578",
+  "extra_order_id": "H83336",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "proper_refusal",
+  "scenario": "out_of_policy_refusal",
+  "id": "h043",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "F64609",
+  "extra_order_id": "E61427",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h044",
+  "persona": "中英夹杂说话的海归",
+  "order_id": "E97969",
+  "extra_order_id": "G66143",
+  "turns": 4,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "plain",
+  "scenario": "exchange",
+  "id": "h045",
+  "persona": "只回一两个字的学生",
+  "order_id": "T49685",
+  "extra_order_id": "X26036",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h046",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "T96541",
+  "extra_order_id": "K28740",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "proper_refusal",
+  "scenario": "out_of_policy_refusal",
+  "id": "h047",
+  "persona": "情绪激动、带点抱怨的年轻人",
+  "order_id": "N38781",
+  "extra_order_id": "W22337",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "plain",
+  "scenario": "refund",
+  "id": "h048",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "F97534",
+  "extra_order_id": "Z39322",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "expedite",
+  "id": "h049",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "M77581",
+  "extra_order_id": "M54448",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.0,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "exchange",
+  "id": "h050",
+  "persona": "只回一两个字的学生",
+  "order_id": "K51749",
+  "extra_order_id": "E57966",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h051",
+  "persona": "中英夹杂说话的海归",
+  "order_id": "P70118",
+  "extra_order_id": "N12370",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.0,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h052",
+  "persona": "中英夹杂说话的海归",
+  "order_id": "P91779",
+  "extra_order_id": "H77143",
+  "turns": 4,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.0,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "shipping_status",
+  "id": "h053",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "X39957",
+  "extra_order_id": "E21018",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "b",
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h054",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "D33796",
+  "extra_order_id": "H26981",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "process_promise",
+  "scenario": "expedite",
+  "id": "h055",
+  "persona": "幽默随意、爱用语气词的用户",
+  "order_id": "Z43896",
+  "extra_order_id": "M29577",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "process_promise",
+  "scenario": "refund",
+  "id": "h056",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "K21725",
+  "extra_order_id": "H17540",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h057",
+  "persona": "犹豫不决、反复改主意的用户",
+  "order_id": "E45248",
+  "extra_order_id": "D93157",
+  "turns": 4,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "shipping_status",
+  "id": "h058",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "E89715",
+  "extra_order_id": "Z39151",
+  "turns": 4,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "id": "h059",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "Z25948",
+  "extra_order_id": "N11513",
+  "turns": 8,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "policy_numbers",
+  "scenario": "refund",
+  "id": "h060",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "M45108",
+  "extra_order_id": "R26937",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h061",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "W41252",
+  "extra_order_id": "E31161",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "_fail": true,
+  "id": "h062",
+  "persona": "着急赶时间的上班族，句子很短",
+  "order_id": "F36446",
+  "extra_order_id": "H92401",
+  "turns": 7,
+  "tool_fails": true,
+  "outcome": -0.5,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h063",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "X36983",
+  "extra_order_id": "H68417",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.0,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "ok_summary",
+  "scenario": "exchange",
+  "id": "h064",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "K12380",
+  "extra_order_id": "H14843",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c",
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h065",
+  "persona": "着急赶时间的上班族，句子很短",
+  "order_id": "W76277",
+  "extra_order_id": "P34832",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h066",
+  "persona": "只回一两个字的学生",
+  "order_id": "N23930",
+  "extra_order_id": "T95210",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h067",
+  "persona": "幽默随意、爱用语气词的用户",
+  "order_id": "N81553",
+  "extra_order_id": "Z61522",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d",
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h068",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "G40089",
+  "extra_order_id": "K36034",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c",
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h069",
+  "persona": "犹豫不决、反复改主意的用户",
+  "order_id": "K17128",
+  "extra_order_id": "Z27015",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h070",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "T43501",
+  "extra_order_id": "M31397",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "process_promise",
+  "scenario": "refund",
+  "id": "h071",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "T59922",
+  "extra_order_id": "Z76314",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "exchange",
+  "_fail": true,
+  "id": "h072",
+  "persona": "替公司采购、语气公事公办的用户",
+  "order_id": "G48411",
+  "extra_order_id": "D70221",
+  "turns": 5,
+  "tool_fails": true,
+  "outcome": -0.5,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h073",
+  "persona": "情绪激动、带点抱怨的年轻人",
+  "order_id": "H68435",
+  "extra_order_id": "D44503",
+  "turns": 8,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "proper_refusal",
+  "scenario": "out_of_policy_refusal",
+  "id": "h074",
+  "persona": "中英夹杂说话的海归",
+  "order_id": "P52406",
+  "extra_order_id": "G14515",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h075",
+  "persona": "只回一两个字的学生",
+  "order_id": "K33980",
+  "extra_order_id": "D53952",
+  "turns": 9,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "proper_refusal",
+  "scenario": "out_of_policy_refusal",
+  "id": "h076",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "N46559",
+  "extra_order_id": "P95985",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h077",
+  "persona": "只回一两个字的学生",
+  "order_id": "P10648",
+  "extra_order_id": "E44625",
+  "turns": 4,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "exchange",
+  "id": "h078",
+  "persona": "情绪激动、带点抱怨的年轻人",
+  "order_id": "M86913",
+  "extra_order_id": "D61639",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.4,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "policy_numbers",
+  "scenario": "account",
+  "id": "h079",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "H92532",
+  "extra_order_id": "G21073",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "ok_summary",
+  "scenario": "partial_refund",
+  "id": "h080",
+  "persona": "幽默随意、爱用语气词的用户",
+  "order_id": "W88192",
+  "extra_order_id": "M52747",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "_fail": true,
+  "id": "h081",
+  "persona": "情绪激动、带点抱怨的年轻人",
+  "order_id": "H91095",
+  "extra_order_id": "T28972",
+  "turns": 3,
+  "tool_fails": true,
+  "outcome": -0.5,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h082",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "P92225",
+  "extra_order_id": "M76262",
+  "turns": 5,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h083",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "X76108",
+  "extra_order_id": "R12107",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h084",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "D15486",
+  "extra_order_id": "F93508",
+  "turns": 8,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h085",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "M69164",
+  "extra_order_id": "P16655",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.0,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "account",
+  "id": "h086",
+  "persona": "幽默随意、爱用语气词的用户",
+  "order_id": "P99216",
+  "extra_order_id": "G74132",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b",
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h087",
+  "persona": "着急赶时间的上班族，句子很短",
+  "order_id": "N19189",
+  "extra_order_id": "W75925",
+  "turns": 4,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.2,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h088",
+  "persona": "幽默随意、爱用语气词的用户",
+  "order_id": "P18657",
+  "extra_order_id": "W72109",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "ok_summary",
+  "scenario": "refund",
+  "id": "h089",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "Z44807",
+  "extra_order_id": "G36898",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a",
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "id": "h090",
+  "persona": "非常礼貌但要求明确的用户",
+  "order_id": "T70337",
+  "extra_order_id": "N60142",
+  "turns": 4,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [
+   "f"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h091",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "T47659",
+  "extra_order_id": "X16127",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.5,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": false
+  }
+ },
+ {
+  "defects": [],
+  "hard_negative": "proper_refusal",
+  "scenario": "out_of_policy_refusal",
+  "id": "h092",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "R29323",
+  "extra_order_id": "K43284",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": 0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "refund",
+  "id": "h093",
+  "persona": "替公司采购、语气公事公办的用户",
+  "order_id": "R27490",
+  "extra_order_id": "D73231",
+  "turns": 3,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": 0.2,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "a"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "id": "h094",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "H98080",
+  "extra_order_id": "E38533",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 0.3,
+  "process_shaping": -0.4,
+  "human": {
+   "confirm_before_write": false,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h095",
+  "persona": "啰嗦、爱讲前因后果的家长",
+  "order_id": "W77703",
+  "extra_order_id": "H70904",
+  "turns": 10,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h096",
+  "persona": "对客服持怀疑态度、追问细节的用户",
+  "order_id": "X25532",
+  "extra_order_id": "P36116",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "e"
+  ],
+  "hard_negative": null,
+  "scenario": "partial_refund",
+  "_fail": true,
+  "id": "h097",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "N12294",
+  "extra_order_id": "H70158",
+  "turns": 4,
+  "tool_fails": true,
+  "outcome": -0.5,
+  "process_shaping": 0.1,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": false,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "c"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h098",
+  "persona": "第一次网购、不太懂流程的用户",
+  "order_id": "N45213",
+  "extra_order_id": "M37503",
+  "turns": 6,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": true,
+   "offer_alternative": false,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h099",
+  "persona": "客气的退休老人，说话慢条斯理",
+  "order_id": "R21836",
+  "extra_order_id": "F78690",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": true,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ },
+ {
+  "defects": [
+   "b",
+   "d"
+  ],
+  "hard_negative": null,
+  "scenario": "out_of_policy_refusal",
+  "id": "h100",
+  "persona": "中英夹杂说话的海归",
+  "order_id": "F89084",
+  "extra_order_id": "Z92794",
+  "turns": 7,
+  "tool_fails": false,
+  "outcome": 1.0,
+  "process_shaping": -0.3,
+  "human": {
+   "confirm_before_write": true,
+   "cite_policy_on_refusal": false,
+   "offer_alternative": true,
+   "no_fabrication": false,
+   "no_false_self_claim": true,
+   "polite_tone": true
+  }
+ }
+]
