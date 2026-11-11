@@ -1,10 +1,19 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>06 算法家族</title><link rel="stylesheet" href="assets/style.css"></head>
+<title>06 算法家族</title><link rel="stylesheet" href="assets/style.css">
+<style>
+.plot{width:100%;height:170px;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+.plot text{font-size:11px;fill:var(--mut)}
+.plot .cv{fill:none;stroke-width:2.2}
+.bar{height:16px;border-radius:4px;border:1px solid var(--line);margin:2px 0}
+.mono{font-family:"JetBrains Mono",Menlo,Consolas,monospace;font-size:13px}
+table.mini td,table.mini th{padding:4px 7px}
+.ctl label{display:block;font-size:13px;color:var(--mut)}
+</style></head>
 <body><main>
 <span class="badge lv-adv">进阶班 · 06</span>
 <h1>算法家族：从 PPO 到 GRPO 的各种变体</h1>
-<p class="lead">目标：看懂主流算法论文在改什么，能和算法团队讨论该选哪个。</p>
+<p class="lead">目标：看懂主流算法论文在改什么，能和算法团队讨论该选哪个。本课先读懂 GRPO 的目标函数，再用具体数字逐项拆开：优势怎么算、clip 什么时候让梯度变 0、损失怎么聚合、要不要除以标准差、比率按 token 还是按序列算、KL 什么时候需要、异步采样怎么修正。每一项都对应一篇论文里的一个改动。</p>
 
 <h2>1. 先读懂 GRPO 目标函数</h2>
 <pre><code>L(θ) = − E[ 1/G Σ_i  1/|o_i| Σ_t  min( ρ_{i,t}·A_i ,  clip(ρ_{i,t}, 1−ε, 1+ε)·A_i ) ]  +  β·KL(π_θ ‖ π_ref)
@@ -14,33 +23,189 @@ A_i     = (r_i − mean(r)) / std(r)                    # 组内相对优势，�
 clip    限制单步更新幅度，防止一次走太远                 # 来自 PPO
 Σ_t     只对 mask = 1 的 token 求和                    # 工具返回不参与（见第 05 课）
 KL      防止偏离参考模型太远；很多 Agentic 实践把 β 设得很小或为 0</code></pre>
+<p>后面每一节改的都是这个式子里的某一项：</p>
+<table>
+<tr><th>式子里的哪一项</th><th>谁改了它</th><th>本课章节</th></tr>
+<tr><td>A<sub>i</sub> 的基线（价值网络 → 组均值）</td><td>GRPO</td><td>第 2 节</td></tr>
+<tr><td>clip 的上下界</td><td>DAPO（clip-higher）</td><td>第 3 节</td></tr>
+<tr><td>1/G · 1/|o<sub>i</sub>|（损失聚合）</td><td>DAPO（token 级平均）、Dr.GRPO（常数归一化）</td><td>第 4 节</td></tr>
+<tr><td>A<sub>i</sub> 里的 std</td><td>Dr.GRPO（去掉 std）</td><td>第 5 节</td></tr>
+<tr><td>ρ<sub>i,t</sub> 的粒度和 clip 方式</td><td>GSPO（序列级比率）、CISPO（裁剪权重而不丢梯度）</td><td>第 6 节</td></tr>
+<tr><td>β·KL</td><td>DAPO、Dr.GRPO、CISPO 都去掉了</td><td>第 7 节</td></tr>
+<tr><td>π<sub>old</sub> 从哪来（异步、训推不一致）</td><td>截断重要性采样等</td><td>第 8 节</td></tr>
+</table>
 
-<h2>2. 动手：看 clip 怎么限制更新</h2>
+<h2>2. 从 PPO 到 GRPO：用同一组 4 个样本算一遍</h2>
+<p>同一道题采样 4 条回答，奖励是 0 或 1。PPO 和 GRPO 的区别只在<b>基线</b>：优势 = 奖励 − 基线，基线回答“这道题平均能拿多少分”。</p>
+<ul>
+<li><b>PPO：</b>用一个价值网络（critic）V(s) 预测基线。只有结尾有奖励、并取 γ = λ = 1 时，GAE 化简为 A<sub>t</sub> = r − V(s<sub>t</sub>)，下表用的是第一个 token 处的 V(s<sub>0</sub>)。</li>
+<li><b>RLOO：</b>基线是<b>其他</b>样本的平均奖励。</li>
+<li><b>GRPO：</b>基线是包括自己在内的组均值，再除以组内标准差。DeepSeekMath 提出时的理由是：价值网络通常和策略模型一样大，显存和计算开销大；而且奖励只在最后一个 token 给出，很难把每个 token 的价值训准。</li>
+</ul>
 <div class="card">
-<div class="grid g3">
+<div class="flex"><span class="mut">点击切换奖励：</span><span id="pg-r"></span></div>
+<div style="margin-top:8px;max-width:420px"><label class="sl">价值网络对这道题的预测 V(s<sub>0</sub>) = <b id="v-V">0.60</b></label><input type="range" id="pg-V" min="0" max="1" step="0.05" value="0.6"></div>
+<div id="pg-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认情况下 4 条里只有 1 条成功，组均值 0.25。价值网络如果预测 0.60（例如它主要在更容易的题上训练过），PPO 给 3 条失败回答的优势都是 −0.60，四个优势加起来是 −1.40：这一步整体在压低所有回答的概率。GRPO 的组均值基线保证一组的优势之和为 0。把 V 拖到 0.25，PPO 就和“减组均值、不除 std”那一行完全一样。再把 4 条都改成 0：组内方法的优势全为 0，而 PPO 只要 V 不等于 0 就仍有信号，这是价值网络的好处之一。</div>
+<p class="mut">标准差这里用总体标准差（除以 G）。有的实现用样本标准差（除以 G − 1），这一组会得到 1.50 / −0.50，而不是 1.73 / −0.58。</p>
+
+<h3>2.1 显存：去掉价值网络省了多少</h3>
+<p>按 ZeRO 论文的估算，混合精度 Adam 训练每个参数大约要 16 字节（bf16 权重 2 + bf16 梯度 2 + fp32 主权重、动量、方差共 12）。冻结、只做前向的模型按 bf16 每参数 2 字节。PPO 要<b>训练</b>两个同样大的模型（策略 + 价值网络），GRPO 只训练一个。</p>
+<div class="card">
+<div class="flex"><label class="sl" style="display:inline">模型参数量（十亿）</label><input type="number" id="mem-N" min="1" step="1" value="7">
+<label><input type="checkbox" id="mem-ref" checked> 参考模型（β &gt; 0 时需要）</label>
+<label><input type="checkbox" id="mem-rm"> 学习得到的奖励模型</label></div>
+<div id="mem-out" class="res" style="margin-top:8px"></div>
+</div>
+<p class="mut">这是粗估，只算权重、梯度和优化器状态，不含激活、KV cache 和 rollout 推理引擎，ZeRO 分片也只是把这些字节分到多张卡上，总量不变。</p>
+
+<h2>3. clip 机制：什么时候梯度变成 0</h2>
+<p>PPO 的 clip 目标是 <code>min(ρ·A, clip(ρ, 1−ε<sub>low</sub>, 1+ε<sub>high</sub>)·A)</code>。min 取到被截断的那一项时，目标对 ρ 是常数，<b>梯度为 0</b>；取到未截断的 ρ·A 时，梯度正常。</p>
+<div class="card">
+<div class="grid g4">
 <div><label class="sl">重要性比率 ρ = <b id="v-rho">1.30</b></label><input type="range" id="rho" min="0.5" max="1.8" step="0.01" value="1.3"></div>
 <div><label class="sl">优势 A = <b id="v-a">1.00</b></label><input type="range" id="adv" min="-2" max="2" step="0.05" value="1"></div>
-<div><label class="sl">ε<sub>low</sub> = <b id="v-el">0.20</b>　ε<sub>high</sub> = <b id="v-eh">0.20</b></label><input type="range" id="eh" min="0.1" max="0.4" step="0.01" value="0.2"><span class="mut" style="font-size:12px">拖动 ε<sub>high</sub>，模拟 DAPO 的 clip-higher</span></div>
+<div><label class="sl">ε<sub>low</sub> = <b id="v-el">0.20</b></label><input type="range" id="el" min="0.1" max="0.4" step="0.01" value="0.2"></div>
+<div><label class="sl">ε<sub>high</sub> = <b id="v-eh">0.20</b></label><input type="range" id="eh" min="0.1" max="0.4" step="0.01" value="0.2"></div>
 </div>
-<div id="clip-out" class="res" style="margin-top:8px"></div>
+<div class="flex" style="margin-top:6px"><span class="mut">预设：</span><button class="btn" id="cp-ppo">PPO / GRPO：0.2 / 0.2</button><button class="btn" id="cp-dapo">DAPO：0.2 / 0.28</button></div>
+<div class="grid g2" style="margin-top:8px">
+<div><div class="mut" style="font-size:13px">目标值随 ρ 的变化（实线：clip 目标；虚线：未截断的 ρ·A；阴影：梯度为 0 的区间）</div><svg class="plot" id="clip-svg" viewBox="0 0 320 170" preserveAspectRatio="none"></svg></div>
+<div id="clip-out" class="res"></div>
 </div>
-<div class="tip">当 A&gt;0 且 ρ 已经超过 1+ε<sub>high</sub>，这个 token 的梯度被截断为 0，不再继续提高它的概率。对低概率的“探索性” token 来说，ρ 很容易超过上限，导致模型越来越保守（熵塌缩）。DAPO 把 ε<sub>high</sub> 调大（clip-higher），就是给这些 token 留出上涨空间。</div>
+</div>
+<p>clip 只在“朝优势方向走过头”时生效，两个方向不对称：</p>
+<table>
+<tr><th></th><th>梯度为 0 的区间</th><th>其余区间</th></tr>
+<tr><td>A &gt; 0（想提高概率）</td><td>ρ &gt; 1 + ε<sub>high</sub>：已经提高够了，不再继续提高</td><td>ρ 很小时（例如 0.6）梯度照常，因为把概率拉回来正是想要的方向</td></tr>
+<tr><td>A &lt; 0（想降低概率）</td><td>ρ &lt; 1 − ε<sub>low</sub>：已经降够了</td><td>ρ 很大时梯度照常，而且权重 ρ 没有上限。CISPO 和截断重要性采样都会处理这种大比率（第 6、8 节）</td></tr>
+</table>
 
-<h2>3. 算法速查</h2>
+<h3>3.1 为什么低概率 token 先撞到上限：clip-higher</h3>
+<p>ρ 是<b>相对</b>变化。同样把概率提高 0.02，原来概率越低，ρ 越大：</p>
+<table>
+<tr><th>π<sub>old</sub></th><th>提高 0.02 后的 ρ</th><th>ε<sub>high</sub> = 0.2 时最多升到</th><th>ε<sub>high</sub> = 0.28 时最多升到</th></tr>
+<tr><td>0.01</td><td>3.00</td><td>0.012</td><td>0.0128</td></tr>
+<tr><td>0.1</td><td>1.20</td><td>0.12</td><td>0.128</td></tr>
+<tr><td>0.5</td><td>1.04</td><td>0.6</td><td>0.64</td></tr>
+<tr><td>0.9</td><td>1.022</td><td>1.08（超过 1，实际不受限）</td><td>1.152（同上）</td></tr>
+</table>
+<p>DAPO 论文用的正是 0.01 和 0.9 这组例子：高概率的“利用型” token 几乎不受上限约束，低概率的“探索型” token 一步只能涨一点点。论文还观察到，被上限截断的 token 平均概率低于 0.2，并在朴素 GRPO 上看到熵快速下降（熵塌缩）。对策是把上下界拆开：<b>ε<sub>low</sub> 保持 0.2，ε<sub>high</sub> 提高到 0.28</b>。ε<sub>low</sub> 不跟着调大，是因为调大会让低概率 token 被一路压到 0，采样空间塌缩。</p>
+<p>在 DAPO 的消融表中（Qwen2.5-32B 底座，AIME 2024 avg@32），朴素 GRPO 为 30 分；依次加入超长过滤、clip-higher、软超长惩罚、token 级损失、动态采样后到 50 分，其中加入 clip-higher 这一步从 36 到 38。</p>
+
+<h2>4. 损失怎么聚合：一条回答有多少话语权</h2>
+<p>同一组里回答长短不一。把每个 token 的损失加成一个标量时，除以什么，决定了每个 token 的权重。在 ρ = 1 附近，每个 token 的梯度系数就是下表里的“每 token 权重”：</p>
+<pre><code>GRPO 样本级平均   (1/G) · Σ_i (1/|o_i|) Σ_t (...)      每 token 权重 = A_i / (G · |o_i|)
+DAPO token 级平均  (1/Σ_i|o_i|) · Σ_i Σ_t (...)         每 token 权重 = A_i / Σ_j|o_j|
+Dr.GRPO 常数归一化 (1/G) · Σ_i (1/L_max) Σ_t (...)      每 token 权重 = A_i / (G · L_max)</code></pre>
+<div class="card">
+<div class="grid g4 ctl">
+<div><label>回答 1 长度 |o<sub>1</sub>|</label><input type="number" id="ag-L1" min="1" step="10" value="100"></div>
+<div><label>回答 1 优势 A<sub>1</sub> = <b id="v-ag-A1">1.00</b></label><input type="range" id="ag-A1" min="-2" max="2" step="0.1" value="1"></div>
+<div><label>回答 2 长度 |o<sub>2</sub>|</label><input type="number" id="ag-L2" min="1" step="10" value="400"></div>
+<div><label>回答 2 优势 A<sub>2</sub> = <b id="v-ag-A2">-1.00</b></label><input type="range" id="ag-A2" min="-2" max="2" step="0.1" value="-1"></div>
+</div>
+<div style="margin-top:6px" class="ctl"><label>Dr.GRPO 的常数 L<sub>max</sub>（例如生成上限）</label><input type="number" id="ag-Lm" min="1" step="100" value="1000"></div>
+<div id="ag-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+<div id="ag-bars" style="margin-top:8px"></div>
+</div>
+<div class="tip">默认情况：一条 100 token 的正确回答（A = +1）和一条 400 token 的错误回答（A = −1）。
+<b>GRPO</b> 给两条回答各 0.5 的总权重，摊到每个 token 上，长的错误回答每个 token 只被罚 0.00125，是短回答的 1/4。Dr.GRPO 论文指出这就是长度偏差：正确回答里越短的更新越大，错误回答里越长的被罚越轻，模型因此倾向于把错误回答写长。
+<b>DAPO</b> 和 <b>Dr.GRPO</b> 让每个 token 权重相同，长回答的总权重随长度增加（这里 −0.8 对 +0.2）。两者的区别在分母：DAPO 除以这批数据实际的 token 总数，一个 token 的权重会随同批其他回答的长度变化；Dr.GRPO 除以一个固定常数，跨批次也一致，只影响梯度的整体大小。</div>
+<p>token 级平均也有代价：错误回答往往更长，负梯度在总量上占优。MiniMax-M1 在把生成长度从 40K 逐步扩到 80K 时就遇到了这个问题：负样本长度增长得比正样本快，后半段序列积累了过大的负梯度，最后改成样本级损失与 token 级归一化结合的方式来缓解。在 verl 中，这三种方式分别对应 <code>loss_agg_mode</code> 的 <code>seq-mean-token-mean</code>（GRPO）、<code>token-mean</code>（DAPO）和 <code>seq-mean-token-sum-norm</code>（Dr.GRPO）。</p>
+
+<h2>5. 优势要不要除以标准差</h2>
+<p>GRPO 的 A = (r − 组均值) / 组标准差。Dr.GRPO 认为除以 std 会带来<b>题目难度偏差</b>：std 小的题（几乎全对或几乎全错）被放大了权重。看一组 G 条回答、其中 k 条正确的二值奖励：</p>
+<div class="card">
+<div class="grid g2">
+<div><label class="sl">组大小 G = <b id="v-sd-G">8</b></label><input type="range" id="sd-G" min="2" max="16" step="1" value="8"></div>
+<div><label class="sl">正确条数 k = <b id="v-sd-k">7</b></label><input type="range" id="sd-k" min="0" max="8" step="1" value="7"></div>
+</div>
+<div class="grid g2" style="margin-top:8px">
+<div id="sd-out" class="res"></div>
+<div><div class="mut" style="font-size:13px">一组的总梯度量 Σ|A|，相对“一半对一半错”的组（实线：除以 std；虚线：不除）</div><svg class="plot" id="sd-svg" viewBox="0 0 320 170" preserveAspectRatio="none"></svg></div>
+</div>
+</div>
+<div class="tip">默认是一道简单题：8 条里 7 条对。除以 std 时，唯一那条错误回答的优势是 <b>−2.65</b>，不除时是 −0.875。看整组：二值奖励下 Σ|A| 除以 std 时等于 2G·√(p(1−p))，不除时等于 2G·p(1−p)，p = k/G。以“4 对 4 错”的组为 1，这道简单题的相对权重除以 std 时是 0.66，不除时是 0.44。也就是说，除以 std 让太简单和太难的题在更新里占了更大比重。全对或全错时两种方式的优势都是 0，DAPO 的动态采样会直接过滤掉这类组，继续采样直到批次填满。</div>
+<p>是否去掉 std 并没有统一结论：除以 std 让不同题的优势落在相近的尺度上，不除则保留了“这道题还有多少可学”的信息。按自己的任务做对照实验，并同时看第 4 节的聚合方式，两者会叠加。</p>
+
+<h2>6. 比率按 token 算还是按序列算：GSPO 与 CISPO</h2>
+<p>GRPO 给每个 token 一个比率 ρ<sub>t</sub>，逐个 clip。两种改法：</p>
+<ul>
+<li><b>GSPO（Qwen）：</b>奖励是给整条序列的，比率也按序列算。用长度归一化的序列比率 <code>s = (π_θ(y)/π_old(y))^(1/|y|) = exp(mean_t log ρ_t)</code>，即各 token 比率的<b>几何平均</b>，再对整条序列 clip。不做长度归一化的话，几个 token 的变化就能让序列比率剧烈波动，不同长度的回答也需要不同的 clip 范围。因为 s 通常非常接近 1，GSPO 的 clip 范围比 GRPO 小几个数量级：论文里 GSPO 左右分别用 3e-4 和 4e-4，对照的 GRPO 用 0.2 和 0.27。</li>
+<li><b>CISPO（MiniMax-M1）：</b>不丢 token 的梯度，而是裁剪重要性权重本身，并对它停梯度：<code>sg(clip(ρ_t, 1−ε<sub>low</sub>, 1+ε<sub>high</sub>)) · A · log π_θ(o_t)</code>。在 clip 范围内，它的梯度和 PPO 相同；超出范围时，PPO 的梯度变 0，CISPO 仍保留这个 token 的梯度，只是权重封顶。论文实验中没有设下界（ε<sub>low</sub> 取得很大），只调 ε<sub>high</sub>。</li>
+</ul>
+<div class="card">
+<div class="flex"><span class="mut">5 个 token 的 ρ<sub>t</sub>：</span><span id="gs-in"></span></div>
+<div class="flex"><span class="mut">优势：</span><button class="btn on" id="gs-pos">A = +1</button><button class="btn" id="gs-neg">A = −1</button>
+<span class="mut">GSPO clip 范围：</span><button class="btn on" id="gs-paper">论文设置 3e-4 / 4e-4</button><button class="btn" id="gs-wide">放宽到 0.2 / 0.2（对照用）</button></div>
+<div id="gs-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认第 3 个 token 的 ρ = 1.60，像是一个原本概率很低、更新后被大幅提高的“反思”token（MiniMax 论文举的例子是 However、Recheck、Wait 这类词）。A = +1 时：
+<b>token 级 clip</b>（0.2 / 0.28）把它的梯度置 0，其余 4 个照常；
+<b>GSPO</b> 的序列比率 s = 1.098，远超 1 + 4e-4，整条序列都不参与这次更新。GSPO 论文确实报告了它被 clip 的 token 比例比 GRPO 高约两个数量级，但训练效率仍然更高；放宽范围后可以看到 GSPO 给 5 个 token 相同的权重；
+<b>CISPO</b> 保留全部 5 个 token 的梯度，第 3 个的重要性权重被封顶在 1.28，表中系数是 1.28/5 = 0.256（这里的 ε<sub>high</sub> = 0.28 只是示例值，论文正文没有给出具体取值）。
+切到 A = −1：token 级 clip 对 ρ = 1.60 不再截断，权重是 −1.60/5 = −0.32，没有上限；CISPO 仍封顶在 −1.28/5。</div>
+<p>两者解决的问题不同。GSPO 针对的是 token 级比率噪声大，在 MoE 模型上尤其明显：论文观察到 Qwen3-30B-A3B 每次梯度更新后，同一条样本约有 10% 的激活专家发生变化，token 级比率随之剧烈波动，GRPO 需要 Routing Replay 才能正常收敛，GSPO 不需要。CISPO 针对的是低概率关键 token 在第一次更新后就被 clip 掉：MiniMax 的设置里每批数据做 16 轮 off-policy 更新，DAPO 的 clip-higher 不够用；在 Qwen2.5-32B 的对照实验中，CISPO 用一半训练步数达到了 DAPO 的 AIME 2024 成绩。GSPO 还有一个 token 级变体 GSPO-token，允许多轮场景里给不同 token 不同优势。</p>
+
+<h2>7. KL 项：什么时候需要 β &gt; 0</h2>
+<p>KL 项把策略拉向参考模型 π<sub>ref</sub>。它在 RLHF 里很重要：奖励模型是在参考模型的输出分布上训练的，策略跑远了，奖励模型就不准，容易被钻空子。奖励来自规则验证器时，这个担心小得多。DAPO、Dr.GRPO（假设 β = 0）和 CISPO 都去掉了 KL 项；Dr.GRPO 指出，去掉后还省掉了参考模型的显存和前向计算。作为对照，DeepSeekMath 的 GRPO 用的是 β = 0.04，并且把 KL 直接加在损失里，而不是像 PPO 那样加进每个 token 的奖励。</p>
+<p>KL 只能用采样到的 token 估计。记 r = π<sub>ref</sub>(o<sub>t</sub>) / π<sub>θ</sub>(o<sub>t</sub>)，常见的两个估计量（Schulman 的 k1 / k3 记法）：</p>
+<pre><code>k1 = −log r              无偏，但单个样本可能为负，方差大
+k3 = (r − 1) − log r     无偏，且恒 ≥ 0，方差通常更小；DeepSeekMath 的 GRPO 用的就是它</code></pre>
+<div class="card">
+<div class="grid g2">
+<div><label class="sl">π<sub>θ</sub>(token) = <b id="v-kl-p">0.50</b></label><input type="range" id="kl-p" min="0.01" max="0.99" step="0.01" value="0.5"></div>
+<div><label class="sl">π<sub>ref</sub>(token) = <b id="v-kl-q">0.40</b></label><input type="range" id="kl-q" min="0.01" max="0.99" step="0.01" value="0.4"></div>
+</div>
+<div id="kl-out" class="res" style="margin-top:8px"></div>
+</div>
+<p>试试 π<sub>θ</sub> = 0.30、π<sub>ref</sub> = 0.45：k1 = −0.405，是负的；k3 = 0.095。还要注意一个实现细节：k3 作为“数值估计”是无偏的，但把它直接当损失求导，得到的梯度一般并不是 KL 的正确梯度（见参考文献中 2025 年关于 KL 梯度估计陷阱的论文）。</p>
+<p><b>智能体场景为什么常用很小或为 0 的 β：</b>奖励大多来自环境状态检查、单元测试这类规则验证；长轨迹训练本来就会让策略明显偏离初始模型；去掉参考模型还能省显存。保留一个小 β 的理由是实践上的：奖励里有 LLM 评审或学到的奖励模型时（第 04 课），或者观察到格式漂移、语言混杂时，KL 可以起约束作用。这两条是经验建议，不是某篇论文的结论。</p>
+
+<h2>8. 离策略与异步修正</h2>
+<p>为了提高 GPU 利用率，异步系统会用落后几个版本的权重继续采样（第 07 课）。这时 π<sub>old</sub> 和 π<sub>θ</sub> 差得更远，ρ 偏离 1 更多。一个简化的例子：假设每个版本都让某个 token 的 log 概率同向增加 δ，落后 k 个版本后 ρ = e<sup>k·δ</sup>。</p>
+<div class="card">
+<div class="grid g3">
+<div><label class="sl">落后版本数 k = <b id="v-st-k">4</b></label><input type="range" id="st-k" min="0" max="8" step="1" value="4"></div>
+<div><label class="sl">每个版本的 log 概率变化 δ = <b id="v-st-d">0.05</b></label><input type="range" id="st-d" min="0" max="0.2" step="0.01" value="0.05"></div>
+<div id="st-out" class="res"></div>
+</div>
+</div>
+<p>δ = 0.05 时，k = 4 就有 ρ = 1.22，超过 1.2，A &gt; 0 的这个 token 在 ε = 0.2 下已经没有梯度。落后越多，被 clip 掉的 token 越多，有效样本越少。常见做法是<b>限制最大落后版本数</b>。</p>
+<p><b>训推不一致</b>是另一层偏差（第 05 课第 3 节）：即使权重完全相同，推理引擎（vLLM、SGLang）和训练引擎（FSDP、Megatron）算出的 token 概率也不同，按“同策略”写的算法其实在做离策略训练。<b>截断重要性采样（TIS）</b>给每个 token 乘一个修正权重：</p>
+<pre><code>w_t = min( π_train(o_t) / π_infer(o_t) ,  C )      # C 是截断上限，超参数</code></pre>
+<div class="card">
+<div class="grid g3 ctl">
+<div><label>训练引擎算的概率 π<sub>train</sub></label><input type="number" id="tis-p" min="0.0001" max="1" step="0.01" value="0.30"></div>
+<div><label>推理引擎采样时的概率 π<sub>infer</sub></label><input type="number" id="tis-q" min="0.0001" max="1" step="0.01" value="0.20"></div>
+<div><label>截断上限 C</label><input type="number" id="tis-C" min="1" step="0.5" value="2"></div>
+</div>
+<div id="tis-out" class="res" style="margin-top:8px"></div>
+</div>
+<p>默认是 0.30 / 0.20，权重 1.5，不截断。把它们改成 0.05 / 0.01，原始权重是 5，截断到 C = 2：截断限制了单个 token 的方差，代价是引入一点偏差。其他相关做法：</p>
+<ul>
+<li><b>提高关键层精度：</b>MiniMax-M1 发现训练和推理的 token 概率不一致会让奖励涨不上去，把 LM 输出头改成 FP32 后，两边概率的相关系数从约 0.9x 提高到约 0.99x。</li>
+<li><b>用序列级比率：</b>GSPO 论文认为序列级似然对精度差异更宽容，有可能直接使用推理引擎返回的概率，省掉训练引擎重算 π<sub>old</sub> 这一步。</li>
+<li><b>先测再修：</b>用第 05 课的方法，在第一个训练步记录 |log ρ|，确认偏差主要来自精度而不是重新分词或模板改写，再决定上哪种修正。</li>
+</ul>
+
+<h2>9. 算法速查</h2>
 <table>
 <tr><th>算法</th><th>来源</th><th>核心改动</th><th>在智能体场景的意义</th></tr>
-<tr><td>PPO</td><td>OpenAI 2017，RLHF 经典</td><td>clip 比率 + 价值网络 + GAE</td><td>理论上能做逐步信用分配，但价值网络在长轨迹上难训练，且显存翻倍</td></tr>
+<tr><td>PPO</td><td>OpenAI 2017，RLHF 经典</td><td>clip 比率 + 价值网络 + GAE</td><td>理论上能做逐步信用分配，但价值网络在长轨迹上难训练，且要多训练一个同样大的模型</td></tr>
 <tr><td>GRPO</td><td>DeepSeekMath / DeepSeek-R1</td><td>组内相对优势，去掉价值网络</td><td>当前默认选择；Bedrock RFT、SageMaker AI 多轮 RL 采用</td></tr>
 <tr><td>RLOO</td><td>学界</td><td>留一法基线：用组内其他样本的均值做基线</td><td>无偏、简单，常作对照</td></tr>
 <tr><td>REINFORCE++</td><td>OpenRLHF</td><td>全局批次归一化优势</td><td>减少小组内归一化的方差</td></tr>
-<tr><td>DAPO</td><td>字节 Seed</td><td>clip-higher、动态采样、token 级损失、超长惩罚</td><td>长轨迹下防熵塌缩；丢弃零梯度组</td></tr>
-<tr><td>Dr.GRPO</td><td>Sea AI Lab 等</td><td>去掉长度归一化和标准差归一化</td><td>避免“越长的错误回答被罚得越轻”的偏差</td></tr>
-<tr><td>GSPO</td><td>阿里 Qwen</td><td>用序列级重要性比率和序列级 clip</td><td>MoE 模型上更稳定</td></tr>
-<tr><td>CISPO</td><td>MiniMax-M1</td><td>裁剪重要性采样权重本身，而不是丢掉 token 的梯度</td><td>保留关键“反思”token 的梯度</td></tr>
+<tr><td>DAPO</td><td>字节 Seed 等</td><td>clip-higher（0.2 / 0.28）、动态采样、token 级损失、超长奖励塑形，去掉 KL</td><td>长轨迹下防熵塌缩；丢弃零梯度组</td></tr>
+<tr><td>Dr.GRPO</td><td>Sea AI Lab 等</td><td>去掉 1/|o<sub>i</sub>| 和 std 归一化，用常数归一化</td><td>避免“越长的错误回答被罚得越轻”和题目难度偏差</td></tr>
+<tr><td>GSPO</td><td>阿里 Qwen</td><td>长度归一化的序列级重要性比率和序列级 clip</td><td>MoE 模型上更稳定，不需要 Routing Replay</td></tr>
+<tr><td>CISPO</td><td>MiniMax-M1</td><td>裁剪重要性采样权重并停梯度，而不是丢掉 token 的梯度</td><td>保留关键“反思”token 的梯度，适合一批数据做多轮更新</td></tr>
 <tr><td>回合级方法</td><td>Agent-R1 等 2025–26 工作</td><td>以一次交互为 RL 转移单位，做回合级优势</td><td>长程任务的信用分配</td></tr>
 </table>
 
-<h2>4. 怎么选</h2>
+<h2>10. 怎么选</h2>
 <ul>
 <li><b>用托管服务：</b>算法已经定了（GRPO 及其调参），你能调的是 group size、学习率、最大 token 数、奖励函数。</li>
 <li><b>自建且任务较短：</b>GRPO 或 Dr.GRPO 起步，加上 DAPO 的动态采样。</li>
@@ -48,21 +213,172 @@ KL      防止偏离参考模型太远；很多 Agentic 实践把 β 设得很�
 <li><b>长程任务、回合多：</b>考虑回合级奖励或回合级优势，配合异步 rollout。</li>
 <li><b>不管选哪个：</b>先确认奖励和环境没有问题。经验上，算法差异带来的提升通常小于奖励和数据质量带来的提升。</li>
 </ul>
+<h3>10.1 按症状选改动</h3>
+<p>这些改动大多可以单独开关，不必整套换算法。看到某个症状，先试对应的那一项，并和不改的版本对照：</p>
+<table>
+<tr><th>你看到的情况</th><th>先试的改动</th><th>出处</th><th>要注意</th></tr>
+<tr><td>显存不够同时放策略和价值网络</td><td>组内基线，去掉价值网络</td><td>GRPO</td><td>组大小要够，组内全对全错时没有信号</td></tr>
+<tr><td>很多组全对或全错，有效样本少</td><td>动态采样：过滤这些组，补采到批次填满</td><td>DAPO</td><td>采样量随难度变化；题太难时先做 SFT 或拆任务（第 05 课）</td></tr>
+<tr><td>策略熵快速下降、回答越来越像</td><td>clip-higher：ε<sub>low</sub> 0.2，ε<sub>high</sub> 0.28</td><td>DAPO</td><td>ε<sub>low</sub> 不要跟着调大</td></tr>
+<tr><td>错误回答越来越长</td><td>去掉 1/|o<sub>i</sub>|，改为 token 级或常数归一化</td><td>Dr.GRPO、DAPO</td><td>token 级平均下长的负样本总梯度更大，扩长度时盯住（MiniMax-M1 的经验）</td></tr>
+<tr><td>太简单、太难的题主导了更新</td><td>优势不除以组内 std</td><td>Dr.GRPO</td><td>效果因任务而异，做对照</td></tr>
+<tr><td>MoE 底座训练不稳定，token 比率抖动大</td><td>序列级比率和序列级 clip</td><td>GSPO</td><td>clip 范围要按序列比率重新设，量级约 1e-4</td></tr>
+<tr><td>一批数据做很多轮更新，低概率关键 token 被 clip 掉</td><td>裁剪重要性权重、保留所有 token 的梯度</td><td>CISPO</td><td>只调 ε<sub>high</sub>；梯度有轻微偏差</td></tr>
+<tr><td>异步采样、训推概率不一致</td><td>限制落后版本数 + 截断重要性采样</td><td>TIS 等</td><td>先按第 05 课测 |log ρ|，排除分词和模板问题</td></tr>
+<tr><td>奖励来自 LLM 评审或学到的奖励模型</td><td>保留小 β 的 KL 项</td><td>RLHF 惯例</td><td>KL 当损失求导时注意估计量的梯度是否正确</td></tr>
+</table>
 
-<h2>5. 离策略修正</h2>
-<p>为了提高 GPU 利用率，异步系统会用落后几个版本的权重继续采样（第 07 课）。这时 π<sub>old</sub> 和 π<sub>θ</sub> 差得更远，ρ 偏离 1 更多，需要：限制最大落后版本数；用重要性采样修正；对 ρ 做截断。推理引擎和训练引擎的数值精度不同（例如 bf16 与 fp32）也会让 ρ 偏离 1，这是 2025–26 年社区关注的“训推不一致”问题之一。</p>
-
+<h2>11. 小测验</h2>
 <div class="quiz" data-answer="1"><b>A &gt; 0 且 ρ = 1.5、ε = 0.2 时，这个 token 的梯度如何？</b><br>
 <button class="btn opt">A. 正常更新，继续提高概率</button><button class="btn opt">B. 被 clip 截断，不再提高概率</button><button class="btn opt">C. 反向更新，降低概率</button>
 <div class="qe">正确答案 B。ρ 超过 1.2，clip 生效，min 取到被截断的那一项，对 θ 的梯度为 0。</div></div>
+<div class="quiz" data-answer="2"><b>按 GRPO 的样本级平均，组里两条错误回答优势都是 −1，一条 100 token，一条 400 token。哪条的每个 token 被罚得更重，长期会造成什么倾向？</b><br>
+<button class="btn opt">A. 400 token 那条，模型会倾向于写短的错误回答</button>
+<button class="btn opt">B. 两条一样重，没有长度倾向</button>
+<button class="btn opt">C. 100 token 那条，每个 token 的惩罚是长回答的 4 倍，模型会倾向于把错误回答写长</button>
+<div class="qe">正确答案 C。每 token 权重是 A/(G·|o<sub>i</sub>|)，长度是 4 倍，惩罚就只有 1/4。这就是 Dr.GRPO 指出的长度偏差。DAPO 的 token 级平均和 Dr.GRPO 的常数归一化让两条回答每个 token 的权重相同。</div></div>
+<div class="quiz" data-answer="0"><b>8 条回答里 7 条正确。GRPO 除以组内 std 时，那条错误回答的优势约为多少？Dr.GRPO 不除 std 时呢？</b><br>
+<button class="btn opt">A. −2.65 和 −0.875：除以 std 让这道简单题里的单个错误被放大了约 3 倍</button>
+<button class="btn opt">B. −1 和 −1：std 不影响优势</button>
+<button class="btn opt">C. −0.875 和 −2.65</button>
+<div class="qe">正确答案 A。组均值 0.875，总体 std = √(0.875 × 0.125) ≈ 0.331，(0 − 0.875)/0.331 ≈ −2.65。不除 std 就是 −0.875。std 越小的组（太简单或太难）被放大得越多，这就是题目难度偏差。</div></div>
+<div class="quiz" data-answer="1"><b>A &gt; 0，某个 token 的 ρ = 1.6，ε<sub>high</sub> = 0.28。token 级 clip（PPO/DAPO）和 CISPO 分别怎么处理它的梯度？</b><br>
+<button class="btn opt">A. 两者都把梯度置 0</button>
+<button class="btn opt">B. token 级 clip 置 0；CISPO 保留梯度，重要性权重封顶在 1.28 并停梯度</button>
+<button class="btn opt">C. token 级 clip 保留梯度；CISPO 置 0</button>
+<div class="qe">正确答案 B。PPO 的 min 取到截断项后对 θ 是常数；CISPO 把截断后的权重当常数乘在 A·log π 上，梯度方向仍然存在，只是大小受限。</div></div>
+
+<h2>12. 参考文献</h2>
+<ul>
+<li>Shao et al. <a href="https://arxiv.org/abs/2402.03300">DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models</a>（arXiv 2402.03300）。GRPO 的出处：去掉价值网络的理由、k3 形式的 KL 估计、β = 0.04。</li>
+<li>Yu et al. <a href="https://arxiv.org/abs/2503.14476">DAPO: An Open-Source LLM Reinforcement Learning System at Scale</a>（arXiv 2503.14476）。clip-higher（ε<sub>low</sub> 0.2、ε<sub>high</sub> 0.28）、0.01 / 0.9 的例子、动态采样、token 级损失、去掉 KL、消融表 30 → 50。</li>
+<li>Liu et al. <a href="https://arxiv.org/abs/2503.20783">Understanding R1-Zero-Like Training: A Critical Perspective</a>（arXiv 2503.20783）。Dr.GRPO：长度偏差与题目难度偏差，去掉 1/|o<sub>i</sub>| 和 std，用常数（如生成上限）归一化，β = 0。</li>
+<li>Zheng et al. <a href="https://arxiv.org/abs/2507.18071">Group Sequence Policy Optimization</a>（arXiv 2507.18071）。序列级比率的定义、3e-4 / 4e-4 与 GRPO 0.2 / 0.27 的 clip 设置、clip 比例差两个数量级、MoE 专家变化约 10% 与 Routing Replay、GSPO-token。</li>
+<li>MiniMax. <a href="https://arxiv.org/abs/2506.13585">MiniMax-M1: Scaling Test-Time Compute Efficiently with Lightning Attention</a>（arXiv 2506.13585）。CISPO 目标、不设下界只调 ε<sub>high</sub>、16 轮 off-policy 更新、一半步数达到 DAPO 成绩、LM 头 FP32 修复训推不一致、长度扩展时负样本梯度失衡。</li>
+<li>Schulman et al. <a href="https://arxiv.org/abs/1707.06347">Proximal Policy Optimization Algorithms</a>（arXiv 1707.06347）。clip 目标。</li>
+<li>Rajbhandari et al. <a href="https://arxiv.org/abs/1910.02054">ZeRO: Memory Optimizations Toward Training Trillion Parameter Models</a>（arXiv 1910.02054）。混合精度 Adam 每参数约 16 字节的估算。</li>
+<li>Schulman. <a href="http://joschu.net/blog/kl-approx.html">Approximating KL Divergence</a>（博客，2020）。k1 / k2 / k3 估计量。</li>
+<li><a href="https://arxiv.org/abs/2506.09477">On a few pitfalls in KL divergence gradient estimation for RL</a>（arXiv 2506.09477）。把 KL 估计量直接当损失求导一般得不到正确梯度。</li>
+<li><a href="https://openreview.net/forum?id=8MHqvb4lK9">On the Rollout-Training Mismatch in Modern RL Systems</a>（OpenReview）。训推不一致与截断重要性采样（TIS）。</li>
+<li>Amazon Bedrock 文档：<a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Customize a model with reinforcement fine-tuning</a>。Bedrock RFT 使用 GRPO。</li>
+</ul>
 </main>
 <script src="assets/common.js"></script>
 <script>
-function upd(){const r=+$('#rho').value,a=+$('#adv').value,eh=+$('#eh').value,el=0.2;
+const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
+const pstd=a=>{const m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)**2)))};
+const fx=(x,d=3)=>{const v=+(+x).toFixed(d);return (v===0?0:v).toFixed(d)};
+const num=(id,lo)=>{const v=+$(id).value;return Number.isFinite(v)?Math.max(lo,v):lo};
+
+/* 2. PPO vs GRPO advantages */
+let PR=[1,0,0,0];
+function pgDraw(){
+const V=+$('#pg-V').value;$('#v-V').textContent=V.toFixed(2);
+$('#pg-r').innerHTML=PR.map((r,i)=>`<button class="btn${r?' on':''}" data-i="${i}">样本 ${i+1}：r = ${r}</button>`).join('');
+$$('#pg-r .btn').forEach(b=>b.onclick=()=>{PR[+b.dataset.i]^=1;pgDraw()});
+const G=PR.length,m=mean(PR),s=pstd(PR);
+const rows=[['PPO：r − V(s<sub>0</sub>)',PR.map(r=>r-V)],['RLOO：r − 其他样本均值',PR.map(r=>r-(m*G-r)/(G-1))],['减组均值、不除 std（Dr.GRPO 的优势）',PR.map(r=>r-m)],['GRPO：(r − 组均值) / std',PR.map(r=>s<1e-9?0:(r-m)/s)]];
+let h='<table class="mini"><tr><th>方法</th>'+PR.map((_,i)=>`<th>样本 ${i+1}</th>`).join('')+'<th>优势之和</th></tr>';
+rows.forEach(([n,a])=>{const sum=a.reduce((x,y)=>x+y,0);h+=`<tr><td>${n}</td>${a.map(v=>`<td class="${v>1e-9?'ok':v<-1e-9?'bad':'mut'}">${fx(v,2)}</td>`).join('')}<td><b>${fx(sum,2)}</b></td></tr>`});
+h+='</table>';
+h+=`<span class="mut">组均值 ${fx(m,2)}，总体 std ${fx(s,3)}。</span>`;
+if(s<1e-9)h+=' <span class="warn">组内奖励全部相同：三种组内方法的优势全为 0，只有 PPO 仍有信号（前提是 V 估得不等于这个奖励）。</span>';
+$('#pg-out').innerHTML=h}
+$('#pg-V').oninput=pgDraw;pgDraw();
+
+/* 2.1 memory */
+function memDraw(){const N=num('#mem-N',0.1),ref=$('#mem-ref').checked,rm=$('#mem-rm').checked;
+const train=16*N,frozen=2*N,extra=(ref?frozen:0)+(rm?frozen:0);const ppo=2*train+extra,grpo=train+extra;
+$('#mem-out').innerHTML=`<table class="mini"><tr><th></th><th>PPO</th><th>GRPO</th></tr>
+<tr><td>策略模型（训练，16 字节/参数）</td><td>${fx(train,0)} GB</td><td>${fx(train,0)} GB</td></tr>
+<tr><td>价值网络（训练，16 字节/参数）</td><td>${fx(train,0)} GB</td><td class="mut">不需要</td></tr>
+<tr><td>冻结模型（参考 / 奖励，2 字节/参数）</td><td>${fx(extra,0)} GB</td><td>${fx(extra,0)} GB</td></tr>
+<tr><td><b>合计</b></td><td><b>${fx(ppo,0)} GB</b></td><td><b>${fx(grpo,0)} GB</b></td></tr></table>
+GRPO 少用 <span class="kpi">${fx((1-grpo/ppo)*100,0)}%</span> <span class="mut">（${fx(N,1)}B 模型：每个训练中的模型 16 × ${fx(N,1)} = ${fx(train,0)} GB）</span>`}
+['#mem-N','#mem-ref','#mem-rm'].forEach(i=>$(i).oninput=memDraw);$('#mem-ref').onchange=memDraw;$('#mem-rm').onchange=memDraw;memDraw();
+
+/* 3. clip calculator with gradient */
+const clipObj=(r,a,el,eh)=>Math.min(r*a,Math.min(Math.max(r,1-el),1+eh)*a);
+function upd(){const r=+$('#rho').value,a=+$('#adv').value,eh=+$('#eh').value,el=+$('#el').value;
 $('#v-rho').textContent=r.toFixed(2);$('#v-a').textContent=a.toFixed(2);$('#v-eh').textContent=eh.toFixed(2);$('#v-el').textContent=el.toFixed(2);
-const c=Math.min(Math.max(r,1-el),1+eh);const u=r*a,cl=c*a;const obj=Math.min(u,cl);const clipped=obj!==u;
-$('#clip-out').innerHTML=`未截断项 ρ·A = <b>${u.toFixed(3)}</b>，截断项 clip(ρ)·A = <b>${cl.toFixed(3)}</b>，取 min = <b>${obj.toFixed(3)}</b>。`+
-(clipped?` <span class="warn">clip 生效：这个 token 的梯度为 0。</span>`:` <span class="ok">clip 未生效：梯度正常，${a>0?'提高':'降低'}该 token 概率。</span>`)}
-['rho','adv','eh'].forEach(i=>$('#'+i).oninput=upd);upd();
+const c=Math.min(Math.max(r,1-el),1+eh);const u=r*a,cl=c*a;const obj=Math.min(u,cl);const clipped=Math.abs(obj-u)>1e-12;const g=clipped?0:a;
+let msg=`未截断项 ρ·A = <b>${fx(u)}</b>，截断项 clip(ρ)·A = <b>${fx(cl)}</b>，取 min = <b>${fx(obj)}</b>。<br>目标对 ρ 的导数 = <b>${fx(g,2)}</b>。`;
+if(Math.abs(a)<1e-9)msg+=' <span class="mut">A = 0：没有学习信号。</span>';
+else if(clipped)msg+=` <span class="warn">clip 生效：这个 token 的梯度为 0（${a>0?'ρ &gt; 1 + ε<sub>high</sub> = '+fx(1+eh,2)+'，已经提高够了':'ρ &lt; 1 − ε<sub>low</sub> = '+fx(1-el,2)+'，已经降低够了'}）。</span>`;
+else msg+=` <span class="ok">clip 未生效：梯度正常，${a>0?'提高':'降低'}该 token 概率。</span>`+(a<0&&r>1+eh?' <span class="mut">注意：A &lt; 0 时 ρ 再大也不截断，权重随 ρ 增大。</span>':'')+(a>0&&r<1-el?' <span class="mut">ρ 低于下界但 A &gt; 0，把概率拉回来正是想要的方向，所以不截断。</span>':'');
+msg+=`<br><span class="mut">梯度为 0 的区间：${a>0?'ρ &gt; '+fx(1+eh,2):a<0?'ρ &lt; '+fx(1-el,2):'—'}。</span>`;
+$('#clip-out').innerHTML=msg;
+const X=v=>20+(v-0.5)/1.3*290;const xs=[];for(let i=0;i<=130;i++)xs.push(0.5+i*0.01);
+const ob=xs.map(v=>clipObj(v,a,el,eh)),un=xs.map(v=>v*a);let lo=Math.min(...ob,...un),hi=Math.max(...ob,...un);if(hi-lo<1e-9){lo-=1;hi+=1}
+const Y=v=>150-(v-lo)/(hi-lo)*130;const pts=arr=>arr.map((v,i)=>`${X(xs[i]).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+let sh='';if(a>0)sh=`<rect x="${X(1+eh).toFixed(1)}" y="12" width="${(310-X(1+eh)).toFixed(1)}" height="140" style="fill:color-mix(in srgb,var(--warn) 22%,transparent)"/>`;
+else if(a<0)sh=`<rect x="20" y="12" width="${(X(1-el)-20).toFixed(1)}" height="140" style="fill:color-mix(in srgb,var(--warn) 22%,transparent)"/>`;
+$('#clip-svg').innerHTML=sh+`<line x1="${X(1)}" y1="12" x2="${X(1)}" y2="152" style="stroke:var(--line)"/><polyline class="cv" points="${pts(un)}" style="stroke:var(--mut)" stroke-dasharray="4,4"/><polyline class="cv" points="${pts(ob)}" style="stroke:var(--acc)"/><circle cx="${X(r).toFixed(1)}" cy="${Y(obj).toFixed(1)}" r="4.5" style="fill:var(--bad)"/><text x="${X(1)-8}" y="166">1.0</text><text x="16" y="166">0.5</text><text x="290" y="166">1.8</text><text x="24" y="24">ρ 当前 ${r.toFixed(2)}</text>`}
+['rho','adv','eh','el'].forEach(i=>$('#'+i).oninput=upd);
+$('#cp-ppo').onclick=()=>{$('#el').value=0.2;$('#eh').value=0.2;upd()};$('#cp-dapo').onclick=()=>{$('#el').value=0.2;$('#eh').value=0.28;upd()};upd();
+
+/* 4. loss aggregation */
+function agDraw(){const L1=Math.round(num('#ag-L1',1)),L2=Math.round(num('#ag-L2',1)),A1=+$('#ag-A1').value,A2=+$('#ag-A2').value,Lm=Math.round(num('#ag-Lm',1)),G=2;
+$('#v-ag-A1').textContent=A1.toFixed(2);$('#v-ag-A2').textContent=A2.toFixed(2);
+const S=[['GRPO 样本级平均',(A,L)=>A/(G*L)],['DAPO token 级平均',(A,L)=>A/(L1+L2)],['Dr.GRPO 常数归一化',(A,L)=>A/(G*Lm)]];
+let h='<table class="mini"><tr><th>聚合方式</th><th>回答 1 每 token</th><th>回答 1 合计</th><th>回答 2 每 token</th><th>回答 2 合计</th><th>回答 2 / 回答 1 每 token 权重之比</th></tr>';let bars='';const mxL=Math.max(L1,L2);
+S.forEach(([n,fn])=>{const w1=fn(A1,L1),w2=fn(A2,L2);const ratio=Math.abs(w1)>1e-15?fx(w2/w1,2):'—';const cls=v=>v>1e-15?'ok':v<-1e-15?'bad':'mut';
+h+=`<tr><td>${n}</td><td class="${cls(w1)}">${fx(w1,5)}</td><td class="${cls(w1)}">${fx(w1*L1,3)}</td><td class="${cls(w2)}">${fx(w2,5)}</td><td class="${cls(w2)}">${fx(w2*L2,3)}</td><td>${ratio}</td></tr>`;
+const mw=Math.max(Math.abs(w1),Math.abs(w2))||1;const bar=(w,L,k)=>`<div class="bar" style="width:${(L/mxL*100).toFixed(1)}%;background:color-mix(in srgb,var(${w>=0?'--ok':'--bad'}) ${(Math.abs(w)/mw*75+5).toFixed(0)}%,var(--panel2))" title="回答 ${k}"></div>`;
+bars+=`<div style="margin:6px 0"><span class="mut" style="font-size:12px">${n}：条长 = 回答长度，颜色深浅 = 每 token 权重（组内相对）</span>${bar(w1,L1,1)}${bar(w2,L2,2)}</div>`});
+h+='</table>';if(Lm<mxL)h+='<span class="warn">L<sub>max</sub> 小于最长回答，通常应取生成上限。</span>';
+$('#ag-out').innerHTML=h;$('#ag-bars').innerHTML=bars}
+['#ag-L1','#ag-L2','#ag-A1','#ag-A2','#ag-Lm'].forEach(i=>$(i).oninput=agDraw);agDraw();
+
+/* 5. std normalization */
+function sdDraw(){const G=+$('#sd-G').value;const ks=$('#sd-k');ks.max=G;if(+ks.value>G)ks.value=G;const k=+ks.value;
+$('#v-sd-G').textContent=G;$('#v-sd-k').textContent=k;const p=k/G,s=Math.sqrt(p*(1-p));
+let h;if(s<1e-9){h='<span class="warn">全对或全错：组内奖励相同，两种方式的优势都是 0，这一组没有梯度。DAPO 的动态采样会过滤掉这类组。</span>'}
+else{const ac=1-p,aw=-p;const sumW=2*G*s,sumN=2*G*p*(1-p);
+h=`<table class="mini"><tr><th></th><th>除以 std（GRPO）</th><th>不除（Dr.GRPO）</th></tr>
+<tr><td>正确回答的 A</td><td class="ok">${fx(ac/s,3)}</td><td class="ok">${fx(ac,3)}</td></tr>
+<tr><td>错误回答的 A</td><td class="bad">${fx(aw/s,3)}</td><td class="bad">${fx(aw,3)}</td></tr>
+<tr><td>整组 Σ|A|</td><td>${fx(sumW,2)}</td><td>${fx(sumN,2)}</td></tr>
+<tr><td>相对“一半对一半错”的组</td><td><b>${fx(2*s,3)}</b></td><td><b>${fx(4*p*(1-p),3)}</b></td></tr></table>
+<span class="mut">p = ${k}/${G} = ${fx(p,3)}，组均值 ${fx(p,3)}，总体 std ${fx(s,3)}。</span>`}
+$('#sd-out').innerHTML=h;
+const X=q=>20+q*290,Y=v=>150-v*130;const ps=[];for(let i=0;i<=100;i++)ps.push(i/100);
+const c1=ps.map(q=>`${X(q).toFixed(1)},${Y(2*Math.sqrt(q*(1-q))).toFixed(1)}`).join(' '),c2=ps.map(q=>`${X(q).toFixed(1)},${Y(4*q*(1-q)).toFixed(1)}`).join(' ');
+$('#sd-svg').innerHTML=`<polyline class="cv" points="${c1}" style="stroke:var(--acc)"/><polyline class="cv" points="${c2}" style="stroke:var(--warn)" stroke-dasharray="5,4"/><line x1="${X(p).toFixed(1)}" y1="14" x2="${X(p).toFixed(1)}" y2="152" style="stroke:var(--bad)"/><text x="16" y="166">p=0</text><text x="${X(0.5)-12}" y="166">0.5</text><text x="290" y="166">1</text><text x="24" y="24">当前 p = ${fx(p,2)}</text>`}
+$('#sd-G').oninput=sdDraw;$('#sd-k').oninput=sdDraw;sdDraw();
+
+/* 6. GSPO vs token clip vs CISPO */
+const GS0=[1.05,0.98,1.60,1.02,0.95];let gsA=1,gsE=[3e-4,4e-4];
+$('#gs-in').innerHTML=GS0.map((v,i)=>`<input type="number" id="gs-${i}" min="0.01" step="0.01" value="${v.toFixed(2)}" style="width:76px">`).join(' ');
+function gsDraw(){const w=GS0.map((_,i)=>num('#gs-'+i,0.01)),n=w.length,A=gsA;
+const el=0.2,eh=0.28,ch=0.28;
+const tok=w.map(x=>((A>0&&x>1+eh)||(A<0&&x<1-el))?0:x*A/n);
+const lg=mean(w.map(Math.log)),s=Math.exp(lg),prod=w.reduce((x,y)=>x*y,1),am=mean(w);
+const seqClip=(A>0&&s>1+gsE[1])||(A<0&&s<1-gsE[0]);const gs=w.map(()=>seqClip?0:s*A/n);
+const ci=w.map(x=>Math.min(x,1+ch)*A/n);
+const cls=v=>v>1e-12?'ok':v<-1e-12?'bad':'warn';
+let h='<table class="mini"><tr><th>token</th>'+w.map((_,i)=>`<th>${i+1}</th>`).join('')+'<th>合计</th></tr>';
+h+='<tr><td>ρ<sub>t</sub></td>'+w.map(x=>`<td>${fx(x,2)}</td>`).join('')+`<td class="mut">算术平均 ${fx(am,3)}</td></tr>`;
+const row=(name,arr)=>`<tr><td>${name}</td>${arr.map(v=>`<td class="${cls(v)}">${fx(v,3)}</td>`).join('')}<td><b>${fx(arr.reduce((x,y)=>x+y,0),3)}</b></td></tr>`;
+h+=row('token 级 clip（0.2 / 0.28）',tok)+row(`GSPO（${gsE[0]<0.01?'3e-4 / 4e-4':'0.2 / 0.2'}）`,gs)+row('CISPO（ε<sub>high</sub> = 0.28，无下界）',ci)+'</table>';
+h+=`<span class="mut">表中数字是每个 token 的 ∇log π 前的系数（含 1/|y| = 1/${n}）。</span><br>GSPO 序列比率 s = exp(平均 log ρ) = <b>${fx(s,4)}</b>，clip 区间 [${fx(1-gsE[0],4)}, ${fx(1+gsE[1],4)}]：`+(seqClip?'<span class="warn">超出区间，整条序列梯度为 0。</span>':'<span class="ok">未截断，5 个 token 权重相同。</span>')+`<br><span class="mut">不做长度归一化的序列比率 Π ρ<sub>t</sub> = ${fx(prod,3)}：一个 token 的变化就把它推得很远。</span>`;
+$('#gs-out').innerHTML=h}
+GS0.forEach((_,i)=>$('#gs-'+i).oninput=gsDraw);
+seg([$('#gs-pos'),$('#gs-neg')],b=>{gsA=b.id==='gs-pos'?1:-1;gsDraw()});
+seg([$('#gs-paper'),$('#gs-wide')],b=>{gsE=b.id==='gs-paper'?[3e-4,4e-4]:[0.2,0.2];gsDraw()});gsDraw();
+
+/* 7. KL estimators */
+function klDraw(){const p=+$('#kl-p').value,q=+$('#kl-q').value;$('#v-kl-p').textContent=p.toFixed(2);$('#v-kl-q').textContent=q.toFixed(2);
+const r=q/p,lr=Math.log(r),k1=-lr,k2=0.5*lr*lr,k3=r-1-lr;
+$('#kl-out').innerHTML=`r = π<sub>ref</sub>/π<sub>θ</sub> = <b>${fx(r,3)}</b>。k1 = −log r = <b class="${k1<0?'bad':''}">${fx(k1,4)}</b>${k1<0?'（单个样本为负）':''}；k2 = ½(log r)² = <b>${fx(k2,4)}</b>；k3 = (r − 1) − log r = <b>${fx(k3,4)}</b>。<br><span class="mut">k2 有偏但方差小，在 r 接近 1 时三者接近；r 离 1 越远差别越大。</span>`}
+$('#kl-p').oninput=klDraw;$('#kl-q').oninput=klDraw;klDraw();
+
+/* 8. staleness + TIS */
+function stDraw(){const k=+$('#st-k').value,d=+$('#st-d').value;$('#v-st-k').textContent=k;$('#v-st-d').textContent=d.toFixed(2);
+const rho=Math.exp(k*d);$('#st-out').innerHTML=`ρ = e<sup>${k}×${d.toFixed(2)}</sup> = <b>${fx(rho,3)}</b><br>`+(rho>1.2?'<span class="warn">超过 1.2：A &gt; 0 时梯度为 0</span>':'<span class="ok">在 1.2 以内：梯度正常</span>')}
+$('#st-k').oninput=stDraw;$('#st-d').oninput=stDraw;stDraw();
+function tisDraw(){const p=num('#tis-p',1e-4),q=num('#tis-q',1e-4),C=num('#tis-C',1);const w=p/q,t=Math.min(w,C);
+$('#tis-out').innerHTML=`原始权重 π<sub>train</sub>/π<sub>infer</sub> = <b>${fx(w,3)}</b>，截断后 w = min(${fx(w,3)}, ${fx(C,2)}) = <b>${fx(t,3)}</b>`+(w>C?' <span class="warn">被截断</span>':' <span class="ok">未截断</span>')}
+['#tis-p','#tis-q','#tis-C'].forEach(i=>$(i).oninput=tisDraw);tisDraw();
 </script>
 </body></html>
