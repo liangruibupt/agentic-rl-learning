@@ -102,3 +102,23 @@ def test_temperature_fallback_then_majority_vote():
     assert v[IDS[0]] is False and all(v[i] for i in IDS[1:])
     j2 = _fake_judge([verdict_json(yes), verdict_json(no), verdict_json(yes)], votes=3)
     assert all(j2.judge([{"role": "user", "content": "x"}]).values())
+
+
+def _verdict_with_evidence(fails):
+    """fails: {item_id: evidence}; every other item passes."""
+    return json.dumps({"items": [{"id": i, "reason": "x", "evidence": fails.get(i, ""), "pass": i not in fails}
+                                 for i in IDS]}, ensure_ascii=False)
+
+
+def test_dedupe_same_statement_counts_once():
+    v = parse_verdict(_verdict_with_evidence({"no_fabrication": "页面上写得清清楚楚", "polite_tone": "“页面上写得清清楚楚，是您自己没看”"}))
+    assert v["polite_tone"] is False and v["no_fabrication"] is True
+    v = parse_verdict(_verdict_with_evidence({"no_fabrication": "退款已成功", "no_false_self_claim": "退款已成功，请留意到账"}))
+    assert v["no_false_self_claim"] is False and v["no_fabrication"] is True
+
+
+def test_dedupe_keeps_distinct_defects():
+    v = parse_verdict(_verdict_with_evidence({"no_fabrication": "预计明天 18 点送达", "no_false_self_claim": "已为您加急处理"}))
+    assert v["no_fabrication"] is False and v["no_false_self_claim"] is False
+    v = parse_verdict(_verdict_with_evidence({"no_fabrication": "预计明天 18 点送达"}))
+    assert v["no_fabrication"] is False
