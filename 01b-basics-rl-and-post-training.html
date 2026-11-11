@@ -212,7 +212,7 @@ src:'事先收集的 (prompt, 好回答, 差回答) 三元组；偏好对可能�
 {id:'ppo',n:'RLHF-PPO',flow:[['t-gen','当前模型实时生成 rollout'],['t-tool','奖励模型打分'],['t-gen','PPO 更新'],['t-sys','用新模型再生成']],
 src:'当前模型对 prompt 实时生成的回答',online:'<span class="ok">是</span>，on-policy',reward:'奖励模型，用人类对输出的排序数据训练（InstructGPT 的三步：SFT → 奖励模型 → PPO）',can:'有用性、无害性、风格；1.3B 的 InstructGPT 在人工评估中优于 175B 的 GPT-3',cant:'奖励模型会被钻空子（reward hacking）；PPO 超参敏感、不稳定，Llama 3 因此没用'},
 {id:'rlvr',n:'RLVR',flow:[['t-gen','当前模型实时生成 rollout'],['t-tool','程序验证器判对错'],['t-gen','GRPO / PPO 更新'],['t-sys','用新模型再生成']],
-src:'当前模型实时生成；题目要有可自动判断的答案',online:'<span class="ok">是</span>',reward:'程序验证器：答案比对、单元测试、格式检查。Tulu 3 首次提出这个名称：答对给固定分（α=10），否则 0',can:'数学、代码、精确指令遵循、推理；R1-Zero 只靠规则奖励，AIME 2024 pass@1 从 15.6% 升到 71.0%',cant:'只适用于结果可自动判断的任务；验证器也可能被钻空子；是否带来基座之外的新能力仍有争论（第 5 节）'},
+src:'当前模型实时生成；题目要有可自动判断的答案',online:'<span class="ok">是</span>',reward:'程序验证器：答案比对、单元测试、格式检查。Tulu 3 首次提出这个名称：答对给固定分（α=10），否则 0',can:'数学、代码、精确指令遵循、推理；R1-Zero 只靠规则奖励，AIME 2024 pass@1 从 15.6% 升到 71.0%（论文 v1；v2 为 77.9%）',cant:'只适用于结果可自动判断的任务；验证器也可能被钻空子；是否带来基座之外的新能力仍有争论（第 5 节）'},
 {id:'agent',n:'Agentic RL',flow:[['t-gen','模型思考、调工具'],['t-tool','环境返回'],['t-gen','再思考 …… 结束'],['t-tool','按整条轨迹的结果打分'],['t-sys','GRPO 更新']],
 src:'模型在工具环境里多步交互自己产生的轨迹，不需要标准轨迹',online:'<span class="ok">是</span>',reward:'环境结果 / 验证器 / 评审，通常对整条轨迹打分（任务是否完成），也可以加中间步骤奖励',can:'工具使用、长程任务完成率；适合“正确做法不唯一、只能判断最终是否成功”的任务',cant:'信用分配难、环境搭建与并发、长轨迹成本高；模型一开始完全不会时通常要先做 SFT 冷启动'}];
 $('#m-btns').innerHTML=METHODS.map((m,i)=>`<button class="btn${i?'':' on'}" data-id="${m.id}">${m.n}</button>`).join('');
