@@ -5,7 +5,10 @@ Each JSONL line follows the Bedrock RFT open-weight format:
 
 The labeling rules are stated in the system prompt, so the task is learnable
 and the reward is fully verifiable. Run:
-  python make_dataset.py --train 400 --test 150 --seed 7
+  python make_dataset.py --train 400 --test 150 --seed 7            # the committed files
+  python make_dataset.py --train 400 --test 150 --dev 100 --seed 7  # same train/test plus dev.jsonl
+  python make_dataset.py --with-reply --prefix reply_               # adds a "reply" field for the judge path
+Then run check_dataset.py on the output before uploading.
 """
 import argparse
 import json
@@ -33,7 +36,11 @@ ANGRY = ["再不处理我就投诉！", "我要找律师。", "我会去网上�
 POLITE = ["麻烦尽快处理，谢谢。", "辛苦了。", "", "谢谢！"]
 
 
-def make_one(rng, idx):
+REPLY_FIELD = """
+- reply: 给用户的一句简短回复（不超过 80 字），回应诉求并说明下一步，不要承诺工单里没有的金额或时间"""
+
+
+def make_one(rng, idx, system_prompt=SYSTEM_PROMPT):
     cat = rng.choice(list(CATS))
     oid = f"{rng.choice('ABCDK')}{rng.randint(10000, 99999)}"
     amt = rng.choice([39, 89, 159, 199, 200, 368, 599, 1000, 1299, 2499, 3888])
@@ -57,7 +64,7 @@ def make_one(rng, idx):
     ref = {"category": cat, "priority": pri, "order_id": order_id, "amount": amount}
     return {
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"工单内容：{text}"},
         ],
         "reference_answer": ref,
@@ -69,18 +76,29 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--train", type=int, default=400)
     ap.add_argument("--test", type=int, default=150)
+    ap.add_argument("--dev", type=int, default=0,
+                    help="extra dev rows for checkpoint selection; drawn after train+test so those stay identical")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--with-reply", action="store_true",
+                    help="also ask for a 'reply' field (for the optional LLM-judge reward path)")
+    ap.add_argument("--prefix", default="", help="output file prefix, e.g. reply_")
     args = ap.parse_args()
     rng = random.Random(args.seed)
+    system_prompt = SYSTEM_PROMPT.replace("\npriority 规则", REPLY_FIELD + "\npriority 规则", 1) if args.with_reply else SYSTEM_PROMPT
     seen, rows = set(), []
-    while len(rows) < args.train + args.test:
-        row = make_one(rng, len(rows))
+    while len(rows) < args.train + args.test + args.dev:
+        row = make_one(rng, len(rows), system_prompt)
         key = row["messages"][1]["content"]
         if key in seen:
             continue
         seen.add(key)
         rows.append(row)
-    for name, part in (("train.jsonl", rows[: args.train]), ("test.jsonl", rows[args.train:])):
+    n1, n2 = args.train, args.train + args.test
+    parts = [("train.jsonl", rows[:n1]), ("test.jsonl", rows[n1:n2])]
+    if args.dev:
+        parts.append(("dev.jsonl", rows[n2:]))
+    for name, part in parts:
+        name = args.prefix + name
         with open(name, "w", encoding="utf-8") as f:
             for r in part:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
