@@ -9,7 +9,7 @@ Method (same as lesson 10 section 8.3):
   - pair the two models: every bootstrap draw uses the same item indices for both;
   - 95% CI = 2.5% and 97.5% percentiles of the resampled differences.
 Also prints the within-item correlation rho (ICC) of exact match, which feeds the power
-calculator in lesson 11 section 9.
+calculator in lesson 11 section 10.2.
 """
 import argparse
 import json

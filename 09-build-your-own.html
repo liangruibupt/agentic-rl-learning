@@ -80,7 +80,7 @@ select.btn{font-size:13px}
 <p>评测决定了“RL 有没有用”这个结论是否可信。下面的协议和第 10 课的实验设计一致。</p>
 <table>
 <tr><th>集合</th><th>用途</th><th>规则</th><th>第 10 课的取值</th></tr>
-<tr><td>开发集</td><td>调提示词、调奖励、读错误</td><td>随便看、随便改</td><td>训练 600 / 验证 150</td></tr>
+<tr><td>开发集</td><td>调提示词、调奖励、读错误</td><td>随便看、随便改</td><td>开发 150（另有训练集 600）</td></tr>
 <tr><td>留出集</td><td>决定版本（选检查点、选 rubric）</td><td>只在做决定时看；每看一次错误再改，它就变成半个训练集</td><td>150</td></tr>
 <tr><td>最终测试集</td><td>报告结论</td><td>训练前冻结并记录 SHA256；只跑一次；看完结果不改任何东西；最好换一个数据来源</td><td>隐藏 200，其中 30% 是训练中没出现过的政策组合</td></tr>
 </table>
@@ -231,7 +231,7 @@ xx00</textarea></div>
 <details><summary>RL 会不会让模型通用能力下降？</summary><p>可能会，尤其是全参数训练和高学习率。LoRA、KL 约束、混入通用任务、在通用基准上做回归测试，都可以控制这个风险。</p></details>
 <details><summary>多久能看到效果？</summary><p>托管路线下，环境和奖励就绪后，一次训练通常是小时级（Wordle 示例 100 步约 12 小时 40 分钟）。真正的时间成本在 P1 环境工程，第 10 节的计划里它占了 4 周。</p></details>
 <details><summary>和提示词工程、SFT 比，RL 的边界在哪？</summary><p>先做提示词优化和 SFT，它们更便宜。RL 适合“知道什么是好结果，但说不清正确步骤”的任务，以及需要在稳定性（pass^k）上进一步提升的场景。</p></details>
-<details><summary>我们在用 OpenAI 的 RFT，还能继续规划吗？</summary><p>不建议。OpenAI 的 Deprecations 页面写明：2026-05-07 起从没跑过微调的组织不能再建任务；2026-07-02 起过去 60 天没调用过微调模型的组织也不能；2027-01-06 起现有活跃客户也不能再建新任务，已训练模型的推理保留到底座模型下线。RFT 的主力模型 o4-mini 已于 2026-10-23 下线。迁移时环境、奖励和评测可以复用，训练换到第 9 节表里的路线。</p></details>
+<details><summary>我们在用 OpenAI 的 RFT，还能继续规划吗？</summary><p>不建议。OpenAI 的 Deprecations 页面写明：2026-05-07 起从没跑过微调的组织不能再建任务；2026-07-02 起过去 60 天没调用过微调模型的组织也不能；2027-01-06 起现有活跃客户也不能再建新任务，已训练模型的推理保留到底座模型下线。RFT 的主力模型 o4-mini 已于 2026-10-23 下线。Evals 平台已于 2026-10-31 变为只读，和 Agent Builder 一起计划 2026-11-30 关停，放在那里的评测也要迁走。迁移时环境、奖励和评测可以复用，训练换到第 9 节表里的路线。</p></details>
 <details><summary>只用 LoRA 够吗？</summary><p>目前 AWS 的托管多轮 RL 只训练 LoRA，训练会话 API 的文档示例也用 LoRA 客户端。大多数“把小模型在一个业务任务上练稳”的场景，LoRA 是合理的起点。需要全参数时走自建，并在第 10 节第 9–10 周的消融里比较两者。</p></details>
 
 <h2>13. 小测验</h2>
@@ -265,7 +265,7 @@ xx00</textarea></div>
 </ul>
 <h3>其他厂商</h3>
 <ul>
-<li>OpenAI：<a href="https://developers.openai.com/api/docs/deprecations">Deprecations</a>（自助微调时间线；o4-mini 2026-10-23 下线；Evals 与 Agent Builder 2026-11-30 关停）</li>
+<li>OpenAI：<a href="https://developers.openai.com/api/docs/deprecations">Deprecations</a>（自助微调时间线；o4-mini 2026-10-23 下线；Evals 2026-10-31 起只读，与 Agent Builder 2026-11-30 关停）</li>
 </ul>
 <h3>本课程</h3>
 <ul>
