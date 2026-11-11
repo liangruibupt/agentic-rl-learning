@@ -1,53 +1,311 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>08 前沿玩家与方案</title><link rel="stylesheet" href="assets/style.css"></head>
+<title>08 前沿玩家与方案</title><link rel="stylesheet" href="assets/style.css">
+<style>
+.scroll{overflow-x:auto}
+table.mx td,table.mx th{padding:5px 7px;font-size:13px}
+table.mx tr.dim{opacity:.35}
+#fw-tab{min-width:1250px}
+.yes{color:var(--ok);font-weight:600}.unk{color:var(--warn)}
+.chk label{display:inline-flex;gap:6px;align-items:center;margin:3px 14px 3px 0;font-size:14px}
+.dt{font-size:12px;color:var(--mut);white-space:nowrap}
+.sl-item{border-left:3px solid var(--acc);padding:6px 12px;margin:8px 0;background:var(--panel)}
+.sl-item.first{border-left-color:var(--ok)}
+.sl-item.out{border-left-color:var(--line);opacity:.7}
+#wz2 p{margin:8px 0}
+</style></head>
 <body><main>
 <span class="badge lv-adv">进阶班 · 08</span>
 <h1>前沿玩家与方案提供方</h1>
-<p class="lead">目标：知道谁在做、做到了什么程度、客户可以直接用什么。按类别筛选。</p>
+<p class="lead">目标：知道谁在做 Agentic RL、各家公开做到了什么程度、客户可以直接用哪些框架和托管服务，并且能读懂厂商公布的数字。本页所有事实都核对于 <b>2026-11-11</b>，来源是官方文档、GitHub README 和论文；查不到一手来源的写“未核实”，或者不写。</p>
+<div class="note">这一页的内容变化很快：框架每个月都在发版，托管服务的模型和区域经常调整，OpenAI 的微调平台正在关停。落地前请打开第 10 节的链接重新核对。</div>
+
+<h2>1. 玩家地图（按类别筛选）</h2>
 <div class="flex" id="pl-filter">
 <button class="btn on" data-c="all">全部</button><button class="btn" data-c="lab">前沿模型实验室</button><button class="btn" data-c="oss">开源训练框架</button><button class="btn" data-c="managed">托管训练服务</button><button class="btn" data-c="env">环境与评测</button>
 </div>
 <div class="grid g3" id="pl-grid" style="margin-top:10px"></div>
-<div class="note">本页根据截至 2026-11 的公开资料整理。前沿实验室的内部训练细节大多没有公开，这里只写它们公开陈述的做法。托管服务支持的模型和区域变化很快，落地前以官方文档为准。</div>
+<p class="mut">前沿实验室的内部训练细节大多不公开，卡片里只写它们自己公开说过的做法。数字的出处在第 4 节和第 10 节。</p>
 
-<h2>格局小结</h2>
+<h2>2. 开源框架对比</h2>
+<p>下表只用各项目自己的 README、文档或论文填写，最新版本取自 GitHub Releases（2026-11-11 查询）。“未核实”表示在这些一手材料里没找到明确说法，不代表不支持。勾选你的需求，不满足的行会变灰。</p>
+<div class="card">
+<div class="chk" id="fw-req">
+<label><input type="checkbox" data-k="mt"> 需要多轮智能体（工具调用、环境交互）</label>
+<label><input type="checkbox" data-k="async"> 需要异步 rollout / 训练</label>
+<label><input type="checkbox" data-k="moe"> 需要 Megatron 或大规模 MoE</label>
+<label><input type="checkbox" data-k="art"> 要接 AgentCore RL Toolkit / AgentCore Runtime</label>
+<label><input type="checkbox" data-k="tinker"> 想先用 Tinker API，以后迁到自有 GPU</label>
+</div>
+<div id="fw-cnt" class="res" style="margin:6px 0"></div>
+<div class="scroll"><table class="mx" id="fw-tab"></table></div>
+</div>
+<div class="tip"><b>怎么读这张表：</b>AgentCore RL Toolkit、rLLM、Agent Lightning 本身不做分布式训练，它们负责“让现有智能体产生训练数据”（网关捕获 token、logprob 和 loss mask），训练交给 verl、slime、SkyRL、Tinker 等后端。verl、slime、AReaL、NeMo-RL、ROLL、SkyRL 是完整的训练系统。第 07 课讲的异步和陈旧度问题，主要由后者处理。</div>
+
+<h2>3. 托管方案对比</h2>
+<p>每一行的“核对”列是我们打开官方页面的日期。模型列表和价格以官方页面为准。</p>
+<div class="scroll"><table class="mx">
+<tr><th>方案</th><th>支持的模型</th><th>单轮 / 多轮</th><th>奖励接口</th><th>计费方式</th><th>数据位置</th><th>核对</th></tr>
+<tr><td><b>Amazon Bedrock RFT</b></td><td>Nova 2 Lite（us-east-1）；gpt-oss-20B、Qwen3 32B（us-west-2）</td><td>单次回答：每个 prompt 生成多个回答，逐个打分</td><td>Lambda 代码，或模型评审（model-as-a-judge）；开源权重模型只能用自定义 Lambda（第 11 课）</td><td>训练按小时：gpt-oss-20b 和 Qwen3 32B 均为 80 美元 / 训练小时；训练后按 token 推理，另收模型存储费</td><td>文档写明定制过程中数据不离开 AWS</td><td class="dt">2026-11-11</td></tr>
+<tr><td><b>SageMaker AI 多轮 RL</b>（serverless）</td><td>Nova Lite 2.0、GPT-OSS-20B（us-east-1、us-west-2）；Gemma-4-31B-it、Qwen 3.6 27B（us-west-2）；训练 LoRA</td><td>多轮：服务调用你的智能体，智能体多次调用策略模型</td><td>智能体在轨迹结束时上报奖励（CompleteRollout + UpdateReward），也可逐回合上报</td><td>按百万 token，分预填充、生成、训练三项；AgentCore 运行费另计</td><td>智能体在 AgentCore，或经 Lambda 转发到 EKS / EC2 / Fargate；有 VPC 配置页；博客写明数据、智能体和模型留在你的账户</td><td class="dt">2026-11-11</td></tr>
+<tr><td><b>SageMaker AI 训练会话 API</b>（Training Sessions）</td><td>未核实（发布公告没有列模型清单）</td><td>由你自己写循环，单轮多轮都可以</td><td>任意：<code>sample()</code>、<code>forward_backward()</code>、<code>optim_step()</code> 都是 API，奖励在你自己的代码里算</td><td>按处理的 token 计费，本地的奖励计算不算 GPU 时间</td><td>2026-10 正式发布，区域为 us-east-1、us-west-2、ap-south-1；AgentCore RL Toolkit 首日支持</td><td class="dt">2026-11-11</td></tr>
+<tr><td><b>SageMaker HyperPod / Amazon EKS 自建</b></td><td>任意开源权重模型</td><td>任意（由 verl、slime 等框架决定）</td><td>任意（框架内的奖励函数或外部服务）</td><td>按实例小时付 GPU；rollout 放在 AgentCore Runtime 时另按 vCPU 和内存计费</td><td>全部在你的账户和 VPC 内</td><td class="dt">2026-11-11</td></tr>
+<tr><td><b>OpenAI RFT / Agent RFT</b></td><td>RFT 的主力模型 o4-mini 已于 2026-10-23 下线；当前模型优化页的方法表只列 SFT、视觉微调和 DPO，不再列 RFT</td><td>RFT：单次回答 + grader；Agent RFT（2025-10 DevDay 宣布）：训练中调用你的工具端点</td><td>可编程 grader（字符串、相似度、模型评审、Python 等）；Agent RFT 的端点细节本次未能打开官方页面，未核实</td><td>RFT 按训练时长计费（OpenAI 帮助中心账单说明）</td><td>数据和模型在 OpenAI 平台；数据驻留选项未核实</td><td class="dt">2026-11-11</td></tr>
+<tr><td><b>Thinking Machines Tinker</b></td><td>Inkling 系列、NVIDIA Nemotron、GLM、Kimi、Qwen、gpt-oss、DeepSeek 等（定价页列表，价格截至 2026-10-19）；LoRA 训练</td><td>由你自己写循环</td><td>任意：文档提供重要性采样、PPO、CISPO、GSPO 等损失函数，也支持自定义损失</td><td>按百万 token，分预填充、缓存预填充、生成、训练；MoE 按激活参数定价；存储 0.10 美元 / GB / 月</td><td>在 Thinking Machines 的基础设施上训练；检查点可下载；区域未核实</td><td class="dt">2026-11-11</td></tr>
+<tr><td><b>Prime Intellect Hosted Training</b>（原 Lab）</td><td>以 <code>prime train models</code> 的输出为准（与集群有关，文档不列静态清单）</td><td>多轮：环境里的 harness 驱动多轮交互，整个循环是异步的</td><td>环境自带的 rubric（verifiers 库），环境可以从 Environments Hub 安装</td><td>按 GPU 小时，精确到秒；全参数训练；共享 LoRA 服务已退役</td><td>在 Prime Intellect 的集群上；区域未核实</td><td class="dt">2026-11-11</td></tr>
+</table></div>
+<div class="note"><b>OpenAI 的时间线（官方 Deprecations 页面）：</b>2026-05-07 起，从没跑过微调的组织不能再建微调任务；2026-07-02 起，过去 60 天没调用过微调模型的组织也不能再建；2027-01-06 起，现有活跃客户也不能再建新任务，已训练模型的推理保留到底座模型下线。<b>Agent Builder</b> 和 <b>Evals</b> 平台于 2026-06-03 宣布弃用，计划 <b>2026-11-30</b> 关停（Evals 已于 2026-10-31 变为只读）。所以对新客户，OpenAI RFT 不是一个可以规划的选项。</div>
+
+<h2>4. 各家公开报告的结果</h2>
+<p>下表只收录有一手来源的数字。“前 → 后”都是来源自己报告的，我们没有复现。每一行的“注意”列写的是读这个数字时要问的问题，与第 04 课第 4.6 到 4.8 节讲的评测诚实性是同一套逻辑。</p>
+<div class="flex" id="rs-filter"><button class="btn on" data-c="all">全部</button><button class="btn" data-c="lab">前沿实验室的模型</button><button class="btn" data-c="sys">框架与云厂商的实验</button></div>
+<div class="scroll" style="margin-top:8px"><table class="mx" id="rs-tab"></table></div>
+<h3>4.1 基准污染和评测偏差：几个已经公开的例子</h3>
 <ul>
-<li><b>闭源前沿实验室</b>把 Agentic RL 用在旗舰产品上（深度研究、编码智能体），但方法细节很少公开。</li>
-<li><b>中国开源模型团队</b>（DeepSeek、Qwen、Kimi、智谱、MiniMax、字节）贡献了大部分公开的算法和框架：GRPO、GSPO、DAPO、CISPO，以及 verl、slime 等。</li>
-<li><b>云厂商</b>在做“托管化”：把 rollout、训练、评测打包成服务，客户只需提供智能体、环境和奖励。AWS 目前形成了 Bedrock RFT（单轮）→ SageMaker AI 多轮 RL（托管多轮）→ AgentCore RL Toolkit + HyperPod/EKS（自建）的完整梯度。</li>
-<li><b>环境</b>正在成为新的稀缺资源：Prime Intellect 的 Environments Hub 已有上千个社区环境；从环境自动合成可验证任务是 2026 年的热点方向。</li>
+<li><b>SWE-bench Verified 已被提出方之一停用。</b>OpenAI 发文说明不再评测 SWE-bench Verified（二手报道的发布日期为 2026-02）：他们审计了模型常失败的 27.6% 题目，发现其中至少 59.4% 的测试会拒绝功能正确的提交；前沿模型还能复现部分题目的参考修复。之后 OpenAI 又发文称其推荐的替代品 SWE-Bench Pro 也有设计问题。所以表中所有 SWE-bench Verified 数字只能作为相对参考。</li>
+<li><b>环境本身可能有捷径。</b>SWE-Gym 的 README 提醒，环境里存在与 SWE-bench issue #465 类似的 git 捷径（智能体能从 git 历史里看到答案），使用前要先跑清理脚本。RL 会主动找到这种捷径，比提示词评测更容易被它污染。</li>
+<li><b>训练任务和测试来自同一个环境。</b>AgentCore RL Toolkit 的 τ²-Bench 结果用的训练任务，是从同一套工具、数据库和政策文档合成的。这证明了“在这个环境里能学会”，不能说明换一个客服系统也一样好。博客对每道题跑 5 次，报告了“总是成功 / 时好时坏 / 总是失败”的比例，这一点比只给平均分可信。</li>
+<li><b>评审模型和工具在变。</b>Kimi-Researcher 的 HLE 分数用 o3-mini 判分，并说明搜索工具的波动会影响结果、给出了评测日期。换评审或换日期，数字都可能变。</li>
+<li><b>数据集是公开的。</b>MigrationBench 的仓库都是 GitHub 上 MIT / Apache-2.0 的公开项目，GSM8K、AIME 2024 也早已公开，底座模型可能在预训练时见过。“前 → 后”的差值比绝对分更有参考价值，因为前后用的是同一个底座。</li>
+</ul>
+
+<h2>5. 环境与评测生态</h2>
+<p>RL 需要的是“能自动判定成功”的环境。下表写清每个环境测什么、奖励（或评测分）怎么算，这决定了它能不能直接拿来训练。</p>
+<div class="scroll"><table class="mx">
+<tr><th>环境 / 基准</th><th>测什么</th><th>规模（来源）</th><th>奖励 / 判分怎么算</th><th>拿来训练要注意</th></tr>
+<tr><td><b>τ²-Bench</b></td><td>客服智能体：航空、零售、电信。电信是“双控”场景，用户也要在自己的设备上操作工具，智能体得指导用户</td><td>当前 text-v1：6 种语言 × 3 个领域，每个领域 50 个冻结任务；英文语音榜为 50 / 114 / 114 题（README）</td><td>有用户模拟器；轨迹结束后检查环境状态是否达到目标、必需的动作和信息是否完成；常用 pass^k 衡量稳定性</td><td>用户模拟器本身是 LLM，有随机性；每题多跑几次</td></tr>
+<tr><td><b>SWE-bench / Verified</b></td><td>在真实 GitHub 仓库里修 issue</td><td>Verified 为 500 道人工筛选题（2024-08）；另有 Multimodal、Multilingual 等版本</td><td>打上补丁后跑测试：原本失败的测试要通过，原本通过的测试不能坏</td><td>见第 4.1 节：OpenAI 已因污染和测试缺陷停用 Verified</td></tr>
+<tr><td><b>SWE-Gym</b></td><td>同上，但专为训练准备</td><td>11 个 Python 仓库的 2.4K 个真实任务，另有 234 个 Lite 子集（README）</td><td>可执行环境里跑单元测试</td><td>先打 git 捷径补丁</td></tr>
+<tr><td><b>Terminal-Bench 2.0</b></td><td>终端里的真实工作：编译、配置服务、训练模型等</td><td>89 个任务，每个有独立环境、人写的参考解和测试（论文 2026-01）</td><td>任务自带的测试脚本判定是否完成</td><td>新用户用 Harbor 框架运行；SkyRL 已集成 Harbor</td></tr>
+<tr><td><b>WebArena</b></td><td>网页智能体：电商、论坛、代码协作、内容管理四类自托管网站</td><td>812 个任务（241 个模板）（论文）</td><td>检查任务结果的功能正确性（程序化检查页面或数据库状态）</td><td>需要自己部署网站；演示站只供浏览</td></tr>
+<tr><td><b>OSWorld</b></td><td>真实操作系统里的多模态电脑操作</td><td>369 个任务，覆盖 Ubuntu / Windows / macOS（论文）；2025-07 发布 OSWorld-Verified</td><td>每个任务有初始状态配置和自定义的执行式评测脚本</td><td>虚拟机开销大；部分任务需要 Google 账号或代理</td></tr>
+<tr><td><b>AppWorld</b></td><td>多 App 日常任务，要写带控制流的代码调用 API</td><td>9 个 App、457 个 API、约 100 个虚拟用户、750 个任务（论文）</td><td>基于状态的单元测试，允许不同完成路径，同时检查有没有误改别的数据（collateral damage）</td><td>AgentCore RL Toolkit 文档里有 AppWorld 示例</td></tr>
+<tr><td><b>MigrationBench</b></td><td>仓库级 Java 8 → 17 代码迁移</td><td>Java 8 + Maven 的公开仓库（2025-05 首发）</td><td>能构建并通过全部测试；编译产物的 class 主版本号为 61；测试方法不变；测试数量不减少；“最大迁移”还要求依赖升到最新主版本</td><td>测试是迁移前就有的，不需要额外写验证器</td></tr>
+<tr><td><b>OfficeBench</b></td><td>跨多个办公应用的工作流</td><td>300 个任务：单应用 93、双应用 95、三应用 112（README）</td><td>按任务选用精确匹配、模糊匹配或执行式评测</td><td>模糊匹配有判分误差，最好人工抽查</td></tr>
+<tr><td><b>CAR-bench</b></td><td>车载语音助手：导航、车辆控制、空调、日历、媒体</td><td>58 个工具、19 条领域政策；Base 100、消歧 56、幻觉 98 个任务（AWS 博客）</td><td>多轮目标完成和工具调用正确性；消歧和幻觉两组专门测“该先问”和“该说做不到”</td><td>与 BMW 合作发布（ACL 2026）</td></tr>
+<tr><td><b>Prime Intellect Environments Hub</b></td><td>社区环境仓库</td><td>2,500+ 个开放 RL 环境（官方博客，2026-06）</td><td>环境 = 数据集 + harness + rubric；同一个环境既能评测也能训练</td><td>质量参差，先在小模型上跑通再用</td></tr>
+</table></div>
+
+<h2>6. 选型助手</h2>
+<p>和第 09 课的选型向导用同一套逻辑，这里多问了三个客户约束：底座是否必须开源权重、数据是否必须留在 AWS 账户、预算形态。全部答完后给出短名单和理由，被排除的方案也写清原因。</p>
+<div class="card" id="wz2">
+<p><b>1. 任务形态？</b><br><button class="btn" data-q="turn" data-v="single">单轮：一次输入一次输出</button><button class="btn" data-q="turn" data-v="multi">多轮：智能体调用工具、与环境交互</button></p>
+<p><b>2. 底座模型必须是开源权重吗？</b><br><button class="btn" data-q="open" data-v="yes">必须</button><button class="btn" data-q="open" data-v="no">闭源也可以</button></p>
+<p><b>3. 对算法和训练方式的控制要求？</b><br><button class="btn" data-q="ctl" data-v="managed">托管支持的模型 + LoRA 即可</button><button class="btn" data-q="ctl" data-v="full">需要全参数、自定义算法或任意模型</button></p>
+<p><b>4. 团队有 GPU 集群运维和分布式训练经验吗？</b><br><button class="btn" data-q="gpu" data-v="no">没有或很少</button><button class="btn" data-q="gpu" data-v="yes">有</button></p>
+<p><b>5. 训练数据和模型必须留在自己的 AWS 账户里吗？</b><br><button class="btn" data-q="aws" data-v="yes">必须</button><button class="btn" data-q="aws" data-v="no">不强制</button></p>
+<p><b>6. 预算形态？</b><br><button class="btn" data-q="bud" data-v="small">先小规模验证，按用量付费</button><button class="btn" data-q="bud" data-v="large">长期、大规模训练，可以承担常驻 GPU</button></p>
+<div id="wz2-res" class="card" style="background:var(--panel2)">请回答全部六个问题。</div>
+</div>
+
+<h2>7. 怎么读厂商的宣称</h2>
+<p>拿到一个“RL 后从 X% 提升到 Y%”的数字，逐项检查。勾选来源里<b>能找到答案</b>的项目。</p>
+<div class="card">
+<div class="chk" id="ck" style="display:block"></div>
+<div id="ck-out" class="res" style="margin-top:8px"></div>
+</div>
+<div class="tip">以第 4 节的 τ²-Bench Telecom 38% → 96% 为例：同一底座前后对比、114 道题每题 5 次、拆出 SFT（0.90）和 RL（0.96）各自的贡献，这几项都有；但训练任务和测试同属一个环境，也没有在另一个客服系统上测。所以它支持的结论是“用环境合成任务，能把小模型在这个环境里的稳定性练上去”，而不是“96% 的通用客服能力”。</div>
+
+<h2>8. 格局小结</h2>
+<ul>
+<li><b>闭源前沿实验室</b>把 Agentic RL 用在旗舰产品上（深度研究、编码智能体），方法细节很少公开。OpenAI 的自助微调平台（含 RFT）正在关停，Agent Builder 和 Evals 计划 2026-11-30 关停。</li>
+<li><b>中国开源模型团队</b>贡献了大部分公开的算法和框架：GRPO（DeepSeek）、GSPO（Qwen）、DAPO（字节 Seed）、CISPO（MiniMax），以及 verl、slime、AReaL、ROLL。</li>
+<li><b>开源框架</b>已经从“能跑 GRPO”走到“能接任何智能体 harness”：rLLM、Agent Lightning、AgentCore RL Toolkit 都用网关捕获 token，让智能体代码在评测和训练中保持不变。训练系统则在比拼异步、MoE 和超大模型（SkyRL 首日支持 501B 的 MoE；verl README 收录了 Mind Lab 在 64 张 H800 上对万亿参数模型做 GRPO LoRA 的案例）。</li>
+<li><b>云厂商</b>在做托管化。AWS 目前形成了 Bedrock RFT（单轮）→ SageMaker AI 多轮 RL（托管多轮）→ SageMaker 训练会话 API（自写算法、不管 GPU）→ HyperPod / EKS 自建的梯度，AgentCore Runtime 负责 rollout。Tinker 和 Prime Intellect 是 AWS 之外的两种托管形态：前者按 token 计费，后者按 GPU 小时计费。</li>
+<li><b>环境</b>是新的稀缺资源：Prime Intellect 的 Hub 已有 2,500+ 个环境；从环境本身合成可验证任务（AgentCore RL Toolkit、DeepSeek-V3.2、Kimi K2）是 2026 年的热点。同时基准在快速失效，SWE-bench Verified 已被停用，评测要用自己的隐藏集。</li>
+</ul>
+
+<h2>9. 小测验</h2>
+<div class="quiz" data-answer="1"><b>某方案报告：用从客服环境自动合成的任务训练后，小模型在该环境的测试集上从 38% 提升到 96%，超过前沿模型。最重要的追问是？</b><br>
+<button class="btn opt">A. 96% 说明它在所有客服场景都超过了前沿模型</button>
+<button class="btn opt">B. 训练任务和测试来自同一套工具、数据库和政策文档，结论只适用于这个环境；还要看是否多次运行、是否在另一个系统上测过</button>
+<button class="btn opt">C. 测试集只有 114 题，所以这个结果没有意义</button>
+<div class="qe">正确答案 B。同环境内的提升是真实的（来源还给了每题 5 次的一致性分析），但不能外推为跨环境泛化。114 题不算多，可以算置信区间，但不是“没有意义”。</div></div>
+<div class="quiz" data-answer="2"><b>客户要训练一个多轮客服智能体，数据必须留在自己的 AWS 账户，没有 GPU 团队，托管模型加 LoRA 就够。首选是？</b><br>
+<button class="btn opt">A. OpenAI Agent RFT</button>
+<button class="btn opt">B. Thinking Machines Tinker</button>
+<button class="btn opt">C. SageMaker AI 多轮 RL，智能体部署在 AgentCore Runtime</button>
+<div class="qe">正确答案 C。A 的数据在 OpenAI 平台，且自助微调平台正在关停；B 的训练在 Thinking Machines 的基础设施上。C 是 serverless、按 token 计费，智能体和数据都在客户账户内，也是第 09 课向导对“多轮 + 托管”的推荐。</div></div>
+<div class="quiz" data-answer="1"><b>一个开源项目报告：纯 RL 让某 MoE 模型在 SWE-bench Verified 上从 47.8% 提升到 61.6%。下面哪个问题最该先问？</b><br>
+<button class="btn opt">A. 用的是哪个训练框架</button>
+<button class="btn opt">B. 前后是否用同一个 scaffold 和解码设置、跑了几次、方差多大；以及这个基准本身是否可靠（OpenAI 已因污染和测试缺陷停用 Verified）</button>
+<button class="btn opt">C. 训练用了多少张 GPU</button>
+<div class="qe">正确答案 B。框架和算力决定成本，不决定数字是否可信。同一底座的前后差值比绝对分可靠，但仍要确认评测设置一致、有多次运行，并把基准本身的缺陷算进去。最终还是要在客户自己的隐藏集上验证（第 04 课第 4.8 节）。</div></div>
+
+<h2>10. 参考文献（均于 2026-11-11 访问）</h2>
+<h3>开源框架</h3>
+<ul>
+<li><a href="https://github.com/verl-project/verl">verl-project/verl</a>（v0.9.1，2026-09-20）· 文档 <a href="https://verl.readthedocs.io/en/latest/advance/fully_async.html">Fully async</a>、<a href="https://verl.readthedocs.io/en/latest/advance/agent_loop.html">Agent loop</a> · Sheng et al. <a href="https://arxiv.org/abs/2409.19256">HybridFlow</a></li>
+<li><a href="https://github.com/THUDM/slime">THUDM/slime</a>（v0.4.0，2026-10-09）</li>
+<li><a href="https://github.com/NovaSky-AI/SkyRL">NovaSky-AI/SkyRL</a>（skyrl-v0.4.0，2026-10-01）· <a href="https://docs.skyrl.ai/docs/models">Supported Models</a> · Cao et al. <a href="https://arxiv.org/abs/2511.16108">SkyRL-Agent</a></li>
+<li><a href="https://github.com/areal-project/AReaL">areal-project/AReaL</a>（v2.1.1，2026-11-04）· Fu et al. <a href="https://arxiv.org/abs/2505.24298">AReaL</a></li>
+<li><a href="https://github.com/rllm-org/rllm">rllm-org/rllm</a>（v0.3.0-pre，2026-04-30）· <a href="https://docs.rllm-project.com/agent-runtimes/agentcore">rLLM × AgentCore 集成指南</a></li>
+<li><a href="https://github.com/OpenRLHF/OpenRLHF">OpenRLHF/OpenRLHF</a>（v0.11.2，2026-09-14）</li>
+<li><a href="https://github.com/huggingface/trl">huggingface/trl</a>（v1.17.1，2026-10-30）· <a href="https://huggingface.co/docs/trl/grpo_trainer">GRPOTrainer 文档（Agent Training、vLLM 模式）</a></li>
+<li><a href="https://github.com/NVIDIA-NeMo/RL">NVIDIA-NeMo/RL</a>（v0.8.0，2026-11-06）</li>
+<li><a href="https://github.com/alibaba/ROLL">alibaba/ROLL</a>（v0.4.0，2026-09-29）</li>
+<li><a href="https://github.com/microsoft/agent-lightning">microsoft/agent-lightning</a>（v1.0.3，2026-11-03）</li>
+<li><a href="https://github.com/awslabs/agentcore-rl-toolkit">awslabs/agentcore-rl-toolkit</a>（v0.2.0，2026-10-19）· 博客 <a href="https://awslabs.github.io/agentcore-rl-toolkit/blog/data-synthesis-v0/">Growing verifiable training tasks from the environment alone</a>（2026-09-15）· <a href="https://awslabs.github.io/agentcore-rl-toolkit/blog/training-multi-step-agents-rl/">Training multi-step agents with RL</a> · <a href="https://rllm-project.com/post.html?post=agentcore_migrationbench.md">MigrationBench × rLLM</a></li>
+</ul>
+<h3>托管服务</h3>
+<ul>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Bedrock 强化微调</a> · <a href="https://aws.amazon.com/bedrock/pricing/">Bedrock 定价（Reinforcement Fine Tuning Pricing）</a></li>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-mtrl.html">SageMaker AI 多轮强化学习（支持模型、计费维度）</a> · <a href="https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-mtrl-agent.html">Preparing your agent</a> · <a href="https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-mtrl-vpc.html">Configure a VPC</a></li>
+<li>AWS 博客：<a href="https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/">Multi-Turn Reinforcement Learning on Amazon SageMaker AI: A hands-on guide</a>（Wordle 61% → 84%、约 339 美元训练 token）</li>
+<li>AWS What's New：<a href="https://aws.amazon.com/about-aws/whats-new/2026/10/training-session-apis-on-sagemaker-ai/">SageMaker AI 训练会话 API</a>（2026-10）· <a href="https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-eks.html">HyperPod with Amazon EKS</a></li>
+<li>OpenAI：<a href="https://developers.openai.com/api/docs/deprecations">Deprecations（Agent Builder、Evals、自助微调时间线、o4-mini 下线）</a> · <a href="https://developers.openai.com/api/docs/guides/model-optimization">Model optimization（微调方法表与关停说明）</a> · <a href="https://help.openai.com/en/articles/11323177">RFT 账单说明</a> · <a href="https://openai.com/index/introducing-agentkit/">Introducing AgentKit, new Evals, and RFT for agents</a>（2025-10，本次访问返回 403）</li>
+<li>Thinking Machines：<a href="https://thinkingmachines.ai/tinker/pricing">Tinker 定价</a>（截至 2026-10-19）· <a href="https://tinker-docs.thinkingmachines.ai/">Tinker 文档</a> · <a href="https://thinkingmachines.ai/tinker/">案例页（含 Glean Waldo）</a></li>
+<li>Prime Intellect：<a href="https://docs.primeintellect.ai/hosted-training/hosted-rl">Hosted RL</a> · <a href="https://docs.primeintellect.ai/hosted-training/billing">Billing</a> · <a href="https://docs.primeintellect.ai/hosted-training/shared-lora-retired">Shared LoRA Training (Retired)</a> · <a href="https://docs.primeintellect.ai/hosted-training/environment-model">The Environment Model</a> · <a href="https://primeintellect.ai/blog/nemotron-coalition">博客：2,500+ 开放环境</a>（2026-06）</li>
+</ul>
+<h3>实验室公开结果</h3>
+<ul>
+<li>DeepSeek-AI. <a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a>（R1-Zero AIME 2024 15.6% → 71.0%）· <a href="https://arxiv.org/abs/2402.03300">DeepSeekMath（GRPO）</a> · <a href="https://arxiv.org/abs/2512.02556">DeepSeek-V3.2（智能体任务合成流水线）</a></li>
+<li>Moonshot AI. <a href="https://arxiv.org/abs/2507.20534">Kimi K2: Open Agentic Intelligence</a> · <a href="https://moonshotai.github.io/Kimi-Researcher/">Kimi-Researcher</a>（2025-06-20）</li>
+<li>Qwen. <a href="https://qwenlm.github.io/blog/qwen3-coder/">Qwen3-Coder 博客</a>（2 万个并行环境的 Agent RL）· <a href="https://arxiv.org/abs/2507.18071">GSPO</a></li>
+<li>ByteDance Seed. <a href="https://arxiv.org/abs/2503.14476">DAPO</a> · MiniMax. <a href="https://arxiv.org/abs/2506.13585">MiniMax-M1（CISPO）</a></li>
+<li>OpenAI. <a href="https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified/">Why we no longer evaluate SWE-bench Verified</a> · <a href="https://openai.com/index/separating-signal-from-noise-coding-evaluations/">Separating signal from noise in coding evaluations</a></li>
+</ul>
+<h3>环境与基准</h3>
+<ul>
+<li><a href="https://github.com/sierra-research/tau2-bench">τ²-Bench</a> · Barres et al. <a href="https://arxiv.org/abs/2506.07982">τ²-Bench 论文</a></li>
+<li><a href="https://github.com/SWE-bench/SWE-bench">SWE-bench</a> · <a href="https://github.com/SWE-Gym/SWE-Gym">SWE-Gym</a> · <a href="https://arxiv.org/abs/2601.11868">Terminal-Bench 2.0 论文</a> · <a href="https://github.com/laude-institute/harbor">Harbor</a></li>
+<li><a href="https://arxiv.org/abs/2307.13854">WebArena</a> · <a href="https://arxiv.org/abs/2404.07972">OSWorld</a> · <a href="https://arxiv.org/abs/2407.18901">AppWorld</a></li>
+<li><a href="https://github.com/amazon-science/MigrationBench">MigrationBench</a>（<a href="https://arxiv.org/abs/2505.09569">论文</a>）· <a href="https://github.com/zlwang-cs/OfficeBench">OfficeBench</a> · CAR-bench（见上方 AgentCore RL Toolkit 数据合成博客）</li>
+</ul>
+<h3>本课程</h3>
+<ul>
+<li><a href="04-intermediate-reward-design.html">第 04 课 奖励设计</a>（4.6 留出验证、4.8 最终测试只跑一次）· <a href="07-advanced-systems.html">第 07 课 系统架构与异步</a> · <a href="09-build-your-own.html">第 09 课 客户自建</a> · <a href="11-lab-bedrock-rft.html">第 11 课 Bedrock RFT 实操</a></li>
 </ul>
 </main>
 <script src="assets/common.js"></script>
 <script>
+/* 1. player cards */
 const players=[
-{c:'lab',n:'OpenAI',t:['o 系列','Deep Research','Codex'],d:'o 系列推理模型用大规模 RL 训练；官方表示 Deep Research 在浏览与工具任务上做了端到端 RL。对外提供 RFT（可编程 grader）和 2025 年 DevDay 发布的 Agent RFT。官方公告 Agent Builder 与 Evals 产品将于 2026-11-30 下线。'},
-{c:'lab',n:'Anthropic',t:['Claude','智能体编码'],d:'Claude 系列在智能体编码和长程工具使用上处于前列，训练细节披露有限。在 Amazon Bedrock 上可作为参照上限、教师模型和 LLM 评审。'},
+{c:'lab',n:'OpenAI',t:['o 系列','Deep Research','Codex','微调平台关停中'],d:'o 系列推理模型用大规模 RL 训练；官方介绍 Deep Research 在浏览和推理任务上做了端到端 RL。2025-10 DevDay 宣布 Agent RFT。自助微调平台（含 RFT）正在关停：o4-mini 已于 2026-10-23 下线，现有客户 2027-01-06 起不能再建任务；Agent Builder 和 Evals 计划 2026-11-30 关停。'},
+{c:'lab',n:'Anthropic',t:['Claude','智能体编码'],d:'Claude 系列在智能体编码和长程工具使用上处于前列，RL 训练细节披露有限。在 Amazon Bedrock 上可作为参照上限、教师模型（合成 SFT 轨迹）和 LLM 评审。'},
 {c:'lab',n:'Google DeepMind',t:['Gemini','Deep Research'],d:'Gemini 思考模型和 Deep Research 类智能体产品；RL 训练方法的公开细节有限。'},
-{c:'lab',n:'DeepSeek',t:['GRPO','R1'],d:'DeepSeekMath / R1 提出并推广了 GRPO 和可验证奖励 RL，是当前开源 Agentic RL 的算法基础；后续版本公开提到大规模合成智能体任务用于训练。'},
-{c:'lab',n:'Moonshot（Kimi）',t:['K2','Kimi-Researcher'],d:'Kimi K2 强调大规模智能体数据合成与联合 RL；Kimi-Researcher 用端到端 RL 训练研究型智能体。'},
-{c:'lab',n:'阿里 Qwen',t:['GSPO','Qwen3-Coder'],d:'提出 GSPO（序列级优化，MoE 更稳定）；Qwen3-Coder 公开介绍了在大量并行环境上做智能体 RL。Qwen 也是 AWS 托管 RL 服务和开源社区最常用的底座之一。'},
-{c:'lab',n:'智谱 / MiniMax / 字节 Seed',t:['slime','CISPO','DAPO','verl'],d:'智谱开源 slime 并用于 GLM 系列的智能体 RL；MiniMax-M1 提出 CISPO；字节 Seed 提出 DAPO 并开源 verl。'},
-{c:'oss',n:'verl',t:['字节','使用最广'],d:'目前使用最广的开源 LLM RL 框架，支持 FSDP / Megatron + vLLM / SGLang，衍生出 VerlTool、Agent-R1 等多轮工具扩展。AgentCore RL Toolkit 原生集成。'},
-{c:'oss',n:'slime',t:['智谱 THUDM','Megatron + SGLang'],d:'面向大规模 MoE 的 RL 框架，强调训推分离和异步。AgentCore RL Toolkit 原生集成。'},
-{c:'oss',n:'SkyRL / SkyRL-Agent',t:['UC Berkeley'],d:'面向多轮长程智能体训练，异步调度、轻量工具集成，可对接 verl 和 Tinker 兼容 API。'},
-{c:'oss',n:'AReaL',t:['蚂蚁 / 清华','全异步'],d:'把采样和训练完全解耦的异步 RL 系统，针对长尾轨迹提高 GPU 利用率。'},
-{c:'oss',n:'rLLM',t:['Berkeley Agentica'],d:'智能体 RL 框架，原生集成 AgentCore Runtime；与 AWS 合作训练 Java 代码迁移智能体。'},
-{c:'oss',n:'其他框架',t:['Agent Lightning','ROLL','OpenRLHF','TRL','NeMo-RL'],d:'Agent Lightning（微软）主打不改智能体代码接入 RL；ROLL 是阿里的大规模 RL 库；OpenRLHF 和 TRL（GRPOTrainer）适合入门；NeMo-RL 面向 NVIDIA 技术栈。'},
-{c:'oss',n:'AgentCore RL Toolkit',t:['AWS awslabs','Apache-2.0'],d:'理念是“训练的智能体就是部署的智能体”：智能体跑在 AgentCore Runtime，rollout 网关做 token 级捕获，训练后端可选 verl、slime、SkyRL、Tinker、SageMaker。公开结果：MigrationBench 43%→76%，τ²-Bench Telecom 38%→96%（SFT + RL），CAR-bench 52%→83%（与 BMW 合作）。'},
-{c:'managed',n:'Amazon SageMaker AI 多轮 RL',t:['2026-06 发布','Serverless','按 token 计费'],d:'托管多轮 RL：训练任务调用你部署在 AgentCore（或通过 Lambda 转发到 EKS / EC2 / Fargate）的智能体，轨迹结束时上报奖励，GRPO 更新 LoRA。博客列出的底座有 Nova 2 Lite、GPT-OSS-20B、Gemma 4 31B、Qwen 3.6 27B。'},
-{c:'managed',n:'Amazon Bedrock RFT',t:['单轮为主','Lambda grader'],d:'全托管 GRPO 强化微调，奖励用 Lambda 代码或模型评审，可以用调用日志做数据。文档列出 Nova 2 Lite、gpt-oss-20B、Qwen3 32B，并提供 OpenAI 兼容 API。'},
-{c:'managed',n:'SageMaker HyperPod / EKS 自建',t:['完全控制'],d:'在弹性 GPU 集群上运行 verl、slime 等开源框架，配合 AgentCore Runtime 做 rollout。适合全参数训练、自定义算法或不在托管列表里的模型。'},
-{c:'managed',n:'OpenAI RFT / Agent RFT',t:['闭源模型'],d:'对 OpenAI 推理模型做强化微调，grader 可编程；数据和模型留在 OpenAI 平台。'},
-{c:'managed',n:'Thinking Machines Tinker',t:['训练 API'],d:'把分布式训练抽象成 API，用户自己写采样和 RL 循环，平台负责 GPU。AgentCore RL Toolkit 支持它的接口。'},
-{c:'managed',n:'Prime Intellect Lab',t:['Environments Hub'],d:'环境社区加训练平台：任务、harness、评测、RL 训练、部署适配器一体化。'},
-{c:'env',n:'τ²-Bench',t:['客服','用户模拟'],d:'航空、零售、电信客服场景，有政策约束和用户模拟器，常用 pass^k 衡量稳定性。'},
-{c:'env',n:'SWE-bench / SWE-Gym / Terminal-Bench',t:['编码','终端'],d:'在真实仓库里修 bug、做终端任务，奖励是测试是否通过。Agentic RL 最重要的试验场。'},
-{c:'env',n:'WebArena / OSWorld / AppWorld',t:['网页','桌面','App'],d:'浏览器、操作系统、多应用环境，长程且状态复杂。'},
-{c:'env',n:'MigrationBench / OfficeBench / CAR-bench',t:['AWS 公开实验'],d:'Java 代码迁移、办公自动化、车载助手，AgentCore RL Toolkit 的公开实验基准。'}];
+{c:'lab',n:'DeepSeek',t:['GRPO','R1','V3.2'],d:'DeepSeekMath 提出 GRPO；R1-Zero 只用规则奖励的 RL，把 AIME 2024 pass@1 从 15.6% 提到 71.0%。DeepSeek-V3.2 技术报告描述了大规模智能体任务合成流水线，用于工具使用场景的后训练。'},
+{c:'lab',n:'Moonshot（Kimi）',t:['K2','Kimi-Researcher'],d:'Kimi K2（1T 总参数 / 32B 激活的 MoE）的后训练以大规模智能体数据合成和联合 RL 为主，在真实和合成环境中交互。Kimi-Researcher 用端到端 RL（主要是 REINFORCE）训练研究型智能体，HLE 从 8.6% 到 26.9%，采用全异步 rollout 和回合级部分 rollout。'},
+{c:'lab',n:'阿里 Qwen',t:['GSPO','Qwen3-Coder'],d:'GSPO 用序列级重要性比率和裁剪，论文称它让 MoE 的 RL 训练更稳定。Qwen3-Coder 在后训练中做长程 Agent RL，在阿里云上搭建了可并行运行 2 万个独立环境的系统。Qwen 也是 AWS 托管 RL 服务和开源社区最常用的底座之一。'},
+{c:'lab',n:'智谱 / MiniMax / 字节 Seed',t:['slime','CISPO','DAPO','verl'],d:'slime 是智谱 GLM-5.1 到 GLM-5.3 系列背后的 RL 框架（README）。MiniMax-M1 在真实软件工程沙箱等环境上做大规模 RL，提出 CISPO。字节 Seed 的 DAPO 基于 verl 开源；verl 已于 2026-01 迁到 verl-project 组织。'},
+{c:'lab',n:'NVIDIA',t:['Nemotron','NeMo-RL','NeMo Gym'],d:'NeMo-RL README 写明 Nemotron-3.5-lightning 原生用 NeMo RL 训练（2026-08）；NeMo Gym 提供环境接入。Prime Intellect 的环境与 NeMo Gym 也已集成。'},
+{c:'oss',n:'verl',t:['verl-project','Apache-2.0','v0.9.1'],d:'使用最广的开源 LLM RL 框架。训练用 FSDP / FSDP2 / Megatron-LM，rollout 用 vLLM / SGLang；支持多轮工具调用（agent loop）、全异步和 one-step-off 训练；Megatron 后端支持 DeepSeek-671B、Qwen3-235B 级 MoE。AgentCore RL Toolkit 原生集成。'},
+{c:'oss',n:'slime',t:['THUDM','Megatron + SGLang','v0.4.0'],d:'Megatron 训练 + SGLang rollout + 数据缓冲区。有 fully_async 示例（专门应对智能体任务的长尾）、编码智能体 RL 示例。生态项目包括 Miles、vime（vLLM 版）、Relax 等。AgentCore RL Toolkit 原生集成。'},
+{c:'oss',n:'SkyRL / SkyRL-Agent',t:['NovaSky-AI','Tinker API','v0.4.0'],d:'FSDP 和 Megatron 训练后端（vLLM 推理），另有 JAX 后端实现 Tinker API，可以在自有 GPU 上跑 Tinker 脚本。SkyRL-Agent 面向长程多轮智能体；已集成 Harbor（终端任务）；2026-10 首日支持 501B-A23B 的 MoE 模型 Beam。'},
+{c:'oss',n:'AReaL',t:['areal-project','全异步','v2.1.1'],d:'以全异步 RL 为核心。训练后端为 Megatron、PyTorch FSDP、PyTorch Archon，推理默认 SGLang、可选 vLLM。AReaL 2.0（2026-07）拆成训练、推理、智能体、权重更新四个微服务，附带 SWE RL 端到端示例。'},
+{c:'oss',n:'rLLM',t:['rllm-org','任意 harness','v0.3.0-pre'],d:'“任意 harness、任意后端、任意基准”：支持 Claude Code、Codex 等 10+ 个 CLI harness，或用 <code>@rllm.rollout</code> 包装自己的智能体；训练后端可选 verl、tinker、fireworks。AgentCore RL Toolkit README 写明 rLLM 原生集成 AgentCore Runtime，双方合作做了 MigrationBench 实验。'},
+{c:'oss',n:'其他框架',t:['Agent Lightning','ROLL','OpenRLHF','TRL','NeMo-RL'],d:'Agent Lightning（微软，MIT）用网关捕获真实 harness 的交互，训练跑 verl + vLLM。ROLL（阿里）面向大规模 GPU 和智能体流水线。OpenRLHF 基于 Ray + vLLM + DeepSpeed，README 现在推荐 NVIDIA 的 Molt。TRL 的 GRPOTrainer 已支持工具和有状态环境，适合入门。NeMo-RL 面向 NVIDIA 技术栈。详见第 2 节表格。'},
+{c:'oss',n:'AgentCore RL Toolkit (ART)',t:['awslabs','Apache-2.0','v0.2.0'],d:'理念是“训练的智能体就是部署的智能体”：智能体跑在 AgentCore Runtime，rollout 网关记录 token id、logprob 和 loss mask，训练后端可选 verl、slime、SkyRL、Tinker 和 SageMaker 训练会话。README 公布的结果见第 4 节，例如 MigrationBench 43% → 76%（Qwen3-Coder-30B-A3B）。'},
+{c:'managed',n:'Amazon SageMaker AI 多轮 RL',t:['Serverless','按 token 计费','LoRA'],d:'训练任务调用你部署在 AgentCore（或经 Lambda 转发到 EKS / EC2 / Fargate）的智能体，智能体通过 OpenAI 兼容接口调用策略模型，轨迹结束时上报奖励，GRPO 更新 LoRA。支持 Nova Lite 2.0、GPT-OSS-20B、Gemma-4-31B-it、Qwen 3.6 27B。'},
+{c:'managed',n:'Amazon Bedrock RFT',t:['单轮','Lambda grader','按训练小时'],d:'全托管 GRPO 强化微调，奖励用 Lambda 代码或模型评审，可以用调用日志做数据。支持 Nova 2 Lite、gpt-oss-20B、Qwen3 32B；开源权重模型训练按 80 美元 / 小时计费。第 11 课是完整实操。'},
+{c:'managed',n:'SageMaker AI 训练会话 API',t:['2026-10 GA','自写训练循环','按 token'],d:'把 sample、forward_backward、optim_step 变成对有状态会话的 API 调用，GPU、LoRA 加载、分布式执行和容错由 SageMaker 负责。适合想自定义 RL 算法但不想运维 GPU 的团队。AgentCore RL Toolkit 首日支持。'},
+{c:'managed',n:'SageMaker HyperPod / EKS 自建',t:['完全控制'],d:'在弹性 GPU 集群上运行 verl、slime 等开源框架，rollout 交给 AgentCore Runtime。适合全参数训练、自定义算法或不在托管列表里的模型。'},
+{c:'managed',n:'OpenAI RFT / Agent RFT',t:['闭源模型','关停中'],d:'对 OpenAI 推理模型做强化微调，grader 可编程，按训练时长计费；数据和模型留在 OpenAI 平台。自助微调平台正在关停，新客户无法使用（第 3 节）。'},
+{c:'managed',n:'Thinking Machines Tinker',t:['训练 API','按 token'],d:'把分布式训练抽象成 API，用户自己写采样和 RL 循环，平台负责 GPU。模型覆盖 Qwen、gpt-oss、DeepSeek、Kimi、GLM、Nemotron 等。SkyRL 和 verl 都提供 Tinker 兼容的自托管实现；AgentCore RL Toolkit 支持它的接口。'},
+{c:'managed',n:'Prime Intellect Hosted Training',t:['全参数','按 GPU 小时','Environments Hub'],d:'原 Lab 平台。按需分配专用 GPU，用开源的 prime-rl 配置训练，全异步、全参数；环境从 Environments Hub 安装。原来的共享 LoRA 服务已退役，适配器也不再能在 Prime Inference 上部署。'},
+{c:'env',n:'τ²-Bench',t:['客服','用户模拟','pass^k'],d:'航空、零售、电信客服；电信是用户也要操作设备的双控场景。当前 text-v1 有 6 种语言 × 3 个领域。按环境最终状态和必需动作判分。'},
+{c:'env',n:'SWE-bench / SWE-Gym / Terminal-Bench',t:['编码','终端'],d:'在真实仓库里修 bug、做终端任务，奖励是测试是否通过。SWE-Gym 有 2.4K 个训练任务；Terminal-Bench 2.0 有 89 个任务。SWE-bench Verified 已被 OpenAI 因污染停用。'},
+{c:'env',n:'WebArena / OSWorld / AppWorld',t:['网页','桌面','App'],d:'812 个网页任务 / 369 个电脑操作任务 / 750 个多 App 任务。长程、状态复杂，判分都是执行式或基于状态的检查。'},
+{c:'env',n:'MigrationBench / OfficeBench / CAR-bench',t:['AWS 公开实验'],d:'Java 8 → 17 迁移、跨应用办公自动化、车载助手，AgentCore RL Toolkit 公开实验用的基准。'},
+{c:'env',n:'Prime Intellect Environments Hub',t:['2,500+ 环境','verifiers'],d:'社区环境仓库。环境 = 数据集 + harness + rubric，同一个环境既能评测也能训练（官方博客，2026-06）。'}];
 const cat={lab:'前沿模型实验室',oss:'开源训练框架',managed:'托管训练服务',env:'环境与评测'};
-function draw(c){$('#pl-grid').innerHTML=players.filter(p=>c==='all'||p.c===c).map(p=>`<div class="card"><h3 style="margin:0 0 4px">${p.n}</h3><div><span class="tag">${cat[p.c]}</span>${p.t.map(x=>`<span class="tag">${x}</span>`).join('')}</div><p style="font-size:13.5px">${p.d}</p></div>`).join('')}
-seg($$('#pl-filter .btn'),b=>draw(b.dataset.c));draw('all');
+function drawPl(c){$('#pl-grid').innerHTML=players.filter(p=>c==='all'||p.c===c).map(p=>`<div class="card"><h3 style="margin:0 0 4px">${p.n}</h3><div><span class="tag">${cat[p.c]}</span>${p.t.map(x=>`<span class="tag">${x}</span>`).join('')}</div><p style="font-size:13.5px">${p.d}</p></div>`).join('')}
+seg($$('#pl-filter .btn'),b=>drawPl(b.dataset.c));drawPl('all');
+
+/* 2. framework matrix. flags: 1 = verified yes, 0 = not found (未核实) */
+const fw=[
+{n:'verl',u:'https://github.com/verl-project/verl',by:'verl-project（源自字节 Seed / 火山引擎）',tr:'FSDP / FSDP2 / Megatron-LM',inf:'vLLM / SGLang / HF',async:[1,'全异步、one-step-off（文档）'],mt:[1,'agent loop、多轮工具调用'],moe:[1,'Megatron + 专家并行，DeepSeek-671B、Qwen3-235B'],art:1,tinker:[1,'VeRL-Tinker（2026-08）'],lic:'Apache-2.0',rel:'v0.9.1（2026-09-20）'},
+{n:'slime',u:'https://github.com/THUDM/slime',by:'THUDM（智谱 / 清华）',tr:'Megatron',inf:'SGLang（vLLM 版为独立项目 vime）',async:[1,'fully_async 示例'],mt:[1,'自定义 generate 函数，编码智能体示例'],moe:[1,'GLM-5.x、Qwen3 MoE、DeepSeek V3'],art:1,tinker:[0,'未核实'],lic:'Apache-2.0',rel:'v0.4.0（2026-10-09）'},
+{n:'SkyRL / SkyRL-Agent',u:'https://github.com/NovaSky-AI/SkyRL',by:'NovaSky-AI',tr:'FSDP / Megatron；JAX（Tinker API 后端）',inf:'vLLM',async:[1,'全异步 + 进行中权重更新（文档）'],mt:[1,'SkyRL-Agent、SkyRL-Gym、Harbor'],moe:[1,'Megatron；Beam 501B-A23B 首日支持'],art:1,tinker:[1,'实现 Tinker API'],lic:'Apache-2.0',rel:'skyrl-v0.4.0（2026-10-01）'},
+{n:'AReaL',u:'https://github.com/areal-project/AReaL',by:'areal-project（蚂蚁 inclusionAI 等）',tr:'Megatron / PyTorch FSDP / PyTorch Archon',inf:'SGLang（默认）/ vLLM',async:[1,'全异步是核心设计'],mt:[1,'通用智能体、OpenAI Agents SDK、CAMEL 集成'],moe:[1,'Megatron 与 Archon 支持专家并行'],art:0,tinker:[0,'未核实'],lic:'Apache-2.0',rel:'v2.1.1（2026-11-04）'},
+{n:'rLLM',u:'https://github.com/rllm-org/rllm',by:'rllm-org（Agentica）',tr:'后端：verl / tinker / fireworks',inf:'经 verl 用 vLLM / SGLang',async:[1,'全异步训练配方（2026-02 博客）'],mt:[1,'10+ CLI harness 或自定义智能体'],moe:[0,'取决于所选后端'],art:1,tinker:[1,'tinker 后端'],lic:'Apache-2.0',rel:'v0.3.0-pre（2026-04-30）'},
+{n:'OpenRLHF',u:'https://github.com/OpenRLHF/OpenRLHF',by:'OpenRLHF 社区',tr:'DeepSpeed ZeRO-3 / AutoTP（Ray 调度）',inf:'vLLM',async:[1,'--train.async_enable（0.8.0 起）'],mt:[1,'agent_func，多轮 VLM（0.10）'],moe:[0,'README 只有 MoE 的 SFT 示例'],art:0,tinker:[0,'未核实'],lic:'Apache-2.0',rel:'v0.11.2（2026-09-14）'},
+{n:'TRL',u:'https://github.com/huggingface/trl',by:'Hugging Face',tr:'Accelerate（DDP、DeepSpeed ZeRO、FSDP）',inf:'vLLM（server / colocate）',async:[0,'未核实'],mt:[1,'GRPOTrainer 的 tools 与 environment_factory'],moe:[0,'文档会记录 MoE 的辅助损失，大规模训练没有说明'],art:0,tinker:[0,'未核实'],lic:'Apache-2.0',rel:'v1.17.1（2026-10-30）'},
+{n:'NeMo-RL',u:'https://github.com/NVIDIA-NeMo/RL',by:'NVIDIA',tr:'Automodel（FSDP2、TP、CP、EP）/ Megatron（Megatron-Bridge）',inf:'vLLM / SGLang / Megatron Inference',async:[1,'异步 rollout、全异步 GRPO'],mt:[1,'多轮 RL、NeMo Gym'],moe:[1,'Nemotron 3.5 Super 120B-A12B 等'],art:0,tinker:[0,'未核实'],lic:'Apache-2.0',rel:'v0.8.0（2026-11-06）'},
+{n:'ROLL',u:'https://github.com/alibaba/ROLL',by:'阿里巴巴',tr:'Megatron-Core / FSDP2（Ray 调度）',inf:'vLLM / SGLang',async:[1,'智能体异步训练、ROLL Flash'],mt:[1,'Agentic 流水线、工具使用、GiGPO'],moe:[1,'Qwen3-235B-A22B、Qwen3-Next-80B-A3B'],art:0,tinker:[0,'未核实'],lic:'Apache-2.0',rel:'v0.4.0（2026-09-29）'},
+{n:'Agent Lightning',u:'https://github.com/microsoft/agent-lightning',by:'微软',tr:'verl',inf:'vLLM',async:[1,'共置异步采集（文档）'],mt:[1,'真实 harness，经 API 网关捕获'],moe:[1,'Qwen3.5-35B-A3B 编码智能体示例'],art:0,tinker:[1,'README 收录 Tinker 联用文章（2025-11）'],lic:'MIT',rel:'v1.0.3（2026-11-03）'},
+{n:'AgentCore RL Toolkit',u:'https://github.com/awslabs/agentcore-rl-toolkit',by:'AWS（awslabs）',tr:'后端：verl / slime / SkyRL / Tinker / SageMaker 训练会话',inf:'由后端决定',async:[1,'SWE-Gym 异步实验（博客）'],mt:[1,'核心用途：AgentCore Runtime 上的多步智能体'],moe:[1,'实验用 Qwen3-30B-A3B 等 MoE，规模取决于后端'],art:1,tinker:[1,'Tinker 后端'],lic:'Apache-2.0',rel:'v0.2.0（2026-10-19）'}];
+const fv=f=>f[0]?`<span class="yes">✓</span> ${f[1]}`:`<span class="unk">未核实</span>${f[1]==='未核实'?'':'（'+f[1]+'）'}`;
+function drawFw(){const req=$$('#fw-req input').filter(i=>i.checked).map(i=>i.dataset.k);let ok=0;
+const rows=fw.map(r=>{const pass=req.every(k=>k==='art'?r.art===1:r[k][0]===1);if(pass)ok++;
+return `<tr class="${pass?'':'dim'}"><td><a href="${r.u}"><b>${r.n}</b></a><br><span class="mut">${r.by}</span></td><td>${r.tr}</td><td>${r.inf}</td><td>${fv(r.async)}</td><td>${fv(r.mt)}</td><td>${fv(r.moe)}</td><td>${r.art?'<span class="yes">✓</span>':'<span class="mut">—</span>'}</td><td>${fv(r.tinker)}</td><td>${r.lic}</td><td class="dt">${r.rel}</td></tr>`}).join('');
+$('#fw-tab').innerHTML='<tr><th>框架 / 维护方</th><th>训练后端</th><th>推理后端</th><th>异步</th><th>多轮 / 智能体</th><th>MoE / 大规模</th><th>AgentCore RL Toolkit 集成</th><th>Tinker API</th><th>许可证</th><th>最新发布</th></tr>'+rows;
+$('#fw-cnt').innerHTML=req.length?`满足全部勾选条件的有 <b>${ok}</b> / ${fw.length} 个。标“未核实”的不计入。`:'未勾选条件，显示全部。“AgentCore RL Toolkit 集成”一列按该工具包 README 的后端列表和 rLLM 的原生集成填写。'}
+$$('#fw-req input').forEach(i=>i.onchange=drawFw);drawFw();
+
+/* 4. published results */
+const rs=[
+{c:'lab',who:'DeepSeek（R1-Zero）',m:'DeepSeek-V3-Base',b:'AIME 2024 pass@1',v:'15.6% → 71.0%（多数投票 86.7%）',how:'纯 RL（GRPO），规则奖励：答案正确 + 格式',note:'数学推理，不是智能体任务；每题采样 16 次求平均。AIME 2024 题目公开。',src:'https://arxiv.org/abs/2501.12948',sn:'arXiv 2501.12948（2025-01）'},
+{c:'lab',who:'Moonshot（Kimi-Researcher）',m:'内部 Kimi k 系列',b:'Humanity\'s Last Exam pass@1',v:'8.6% → 26.9%（pass@4 为 40.17%）',how:'端到端智能体 RL，主要用 REINFORCE；结果奖励 + 格式惩罚 + γ 衰减',note:'用 o3-mini 判分；来源说明搜索工具波动会影响结果，并给出评测日期；模型未开源，无法复现。',src:'https://moonshotai.github.io/Kimi-Researcher/',sn:'官方博客（2025-06-20）'},
+{c:'lab',who:'Moonshot（Kimi K2）',m:'Kimi K2（1T / 32B 激活）',b:'τ²-Bench；SWE-bench Verified',v:'66.1；65.8（最终分）',how:'大规模智能体数据合成 + 联合 RL',note:'只报告最终分，没有单独拆出 RL 带来的增益。SWE-bench Verified 见第 4.1 节。',src:'https://arxiv.org/abs/2507.20534',sn:'arXiv 2507.20534（2025-07）'},
+{c:'lab',who:'阿里 Qwen（Qwen3-Coder）',m:'Qwen3-Coder-480B-A35B',b:'SWE-bench Verified',v:'博客称在开源模型中领先（不用测试时扩展）；具体数值在图中，本页不转录',how:'长程 Agent RL，2 万个并行环境',note:'没有给出 RL 前后对比。SWE-bench Verified 见第 4.1 节。',src:'https://qwenlm.github.io/blog/qwen3-coder/',sn:'官方博客（2025-07）'},
+{c:'sys',who:'微软 Agent Lightning',m:'Qwen3.5-35B-A3B',b:'SWE-bench Verified',v:'47.8% → 61.6%',how:'纯 RL，1.8K 训练样本',note:'同一底座前后对比；README 未写运行次数。SWE-bench Verified 见第 4.1 节。',src:'https://github.com/microsoft/agent-lightning',sn:'README 新闻（2026-09）'},
+{c:'sys',who:'AgentCore RL Toolkit × rLLM',m:'Qwen3.8-27B',b:'MigrationBench（Java 迁移）',v:'52% → 93%',how:'RL，智能体跑在 AgentCore Runtime',note:'仓库来自 GitHub 公开项目，可能出现在预训练数据中；看前后差值。',src:'https://github.com/awslabs/agentcore-rl-toolkit',sn:'README（2026-11-11 访问）'},
+{c:'sys',who:'AgentCore RL Toolkit × rLLM',m:'Qwen3-Coder-30B-A3B',b:'MigrationBench',v:'43% → 76%',how:'RL',note:'同上。README 另报一个实时 RL 设置（每题只用 1 条 rollout），MigrationBench 从 43% 到 59.2%。',src:'https://rllm-project.com/post.html?post=agentcore_migrationbench.md',sn:'rLLM 博客 / README'},
+{c:'sys',who:'AgentCore RL Toolkit',m:'Qwen3-30B-A3B',b:'OfficeBench',v:'24% → 41%',how:'RL',note:'OfficeBench 部分任务用模糊匹配判分。',src:'https://awslabs.github.io/agentcore-rl-toolkit/blog/training-multi-step-agents-rl/',sn:'项目博客'},
+{c:'sys',who:'AgentCore RL Toolkit',m:'Qwen3-Coder-30B-A3B',b:'SWE-Gym（OpenHands）',v:'56% → 64%',how:'RL（含异步实验，见第 07 课）',note:'SWE-Gym 环境有 git 捷径，需要先打补丁（README 提醒）。',src:'https://awslabs.github.io/agentcore-rl-toolkit/examples/openhands-swegym-agent/',sn:'项目文档'},
+{c:'sys',who:'AgentCore RL Toolkit',m:'Qwen3-30B-A3B-Thinking-2507',b:'τ²-Bench Telecom（114 题）',v:'38% → 96%（SFT 后 90%）',how:'从环境合成约 600 个可验证任务 / 领域；SFT + GRPO（DAPO 式改进），全参数',note:'训练任务和测试来自同一套工具、数据库和政策；每题跑 5 次，总是成功的比例从 19.3% 升到 89.5%。前沿模型匿名为 A / B。',src:'https://awslabs.github.io/agentcore-rl-toolkit/blog/data-synthesis-v0/',sn:'项目博客（2026-09-15）'},
+{c:'sys',who:'AgentCore RL Toolkit × BMW',m:'Qwen3-30B-A3B-Thinking-2507',b:'CAR-bench Base（100 题）',v:'52% → 83%（SFT 后 79%）',how:'同上',note:'同上。消歧组 44% → 74%，幻觉组 46% → 90%。',src:'https://awslabs.github.io/agentcore-rl-toolkit/blog/data-synthesis-v0/',sn:'项目博客（2026-09-15）'},
+{c:'sys',who:'AgentCore RL Toolkit + SageMaker 训练会话',m:'GPT-OSS-20B',b:'GSM8K 智能体评测准确率',v:'3% → 83%',how:'RL，无需自管 GPU 集群',note:'单轮数学，GSM8K 早已公开。基线极低时，提升里通常有一部分是学会了判分要求的格式，来源没有拆分。',src:'https://github.com/awslabs/agentcore-rl-toolkit',sn:'README 新闻（2026-10）'},
+{c:'sys',who:'SageMaker AI 多轮 RL（AWS 博客）',m:'gpt-oss-20b',b:'Wordle 留出词解出率',v:'默认推理强度 61% → 84%；low 强度 15% → 69%',how:'GRPO + LoRA，100 步、105,486 条 rollout，训练 token 约 339 美元',note:'训练词与验证词不重叠；按服务时的推理强度评测。作者说明这是教学示例，前沿模型本来就会玩。',src:'https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/',sn:'AWS 博客'},
+{c:'sys',who:'Tinker × Glean',m:'NVIDIA Nemotron 3 Nano（Waldo）',b:'企业内搜索系统（无公开基准）',v:'延迟约 −50%，token 用量约 −25%',how:'在 Tinker 上训练智能体搜索模型',note:'客户自报的系统级指标，没有准确率对比，无法独立核对。',src:'https://thinkingmachines.ai/tinker/',sn:'Tinker 案例页（2026-11-11 访问）'}];
+function drawRs(c){$('#rs-tab').innerHTML='<tr><th>谁</th><th>模型</th><th>基准</th><th>前 → 后</th><th>方法</th><th>注意</th><th>来源</th></tr>'+rs.filter(r=>c==='all'||r.c===c).map(r=>`<tr><td>${r.who}</td><td>${r.m}</td><td>${r.b}</td><td><b>${r.v}</b></td><td>${r.how}</td><td>${r.note}</td><td><a href="${r.src}">${r.sn}</a></td></tr>`).join('')}
+seg($$('#rs-filter .btn'),b=>drawRs(b.dataset.c));drawRs('all');
+</script>
+<script>
+/* 6. decision helper */
+const A2={};
+$$('#wz2 [data-q]').forEach(b=>b.addEventListener('click',()=>{$$(`#wz2 [data-q="${b.dataset.q}"]`).forEach(x=>x.classList.remove('on'));b.classList.add('on');A2[b.dataset.q]=b.dataset.v;wz2()}));
+const OPTS={
+brft:{n:'Amazon Bedrock RFT',why:'单轮任务 + Lambda 奖励，全托管 GRPO；开源底座可选 gpt-oss-20B、Qwen3 32B，按训练小时计费，数据不离开 AWS。第 11 课有完整实操。'},
+mtrl:{n:'SageMaker AI 多轮 RL + AgentCore Runtime',why:'把现有 Strands 或 LangGraph 智能体部署到 AgentCore，轨迹结束时上报奖励；serverless、按 token 计费，训练 LoRA。开源底座可选 GPT-OSS-20B、Gemma-4-31B-it、Qwen 3.6 27B。第 10 课的实验按这条路线设计。'},
+ts:{n:'SageMaker AI 训练会话 API + AgentCore RL Toolkit',why:'自己写 RL 循环和损失，GPU、LoRA 加载、容错由 SageMaker 负责，按 token 计费；智能体仍跑在 AgentCore Runtime。支持的模型清单和是否支持全参数，发布公告未写明，需按文档确认。'},
+self:{n:'自建：AgentCore RL Toolkit + verl / slime，跑在 SageMaker HyperPod 或 Amazon EKS',why:'任意开源模型、全参数、可做算法消融；按实例小时付 GPU。rollout 交给 AgentCore Runtime，训练集群只做推理和训练（第 07 课）。'},
+tinker:{n:'Thinking Machines Tinker（可配合 AgentCore RL Toolkit / rLLM / SkyRL）',why:'自写训练循环、不用管 GPU，按 token 计费，模型覆盖面广。以后需要搬回自有 GPU 时，SkyRL 和 verl 都有 Tinker 兼容实现。'},
+prime:{n:'Prime Intellect Hosted Training',why:'按需专用 GPU、全参数、全异步，按 GPU 小时计费；环境用 verifiers 写，可从 Environments Hub 复用。'},
+oai:{n:'OpenAI RFT / Agent RFT',why:'只适用于必须微调 OpenAI 闭源推理模型、且已是现有微调客户的情况。'}};
+function wz2(){const k=['turn','open','ctl','gpu','aws','bud'];if(k.some(x=>!A2[x])){$('#wz2-res').innerHTML=`还差 ${k.filter(x=>!A2[x]).length} 个问题。`;return}
+const out={};const ex=(id,why)=>{(out[id]=out[id]||[]).push(why)};
+/* exclusions */
+if(A2.turn==='multi')ex('brft','只对单次回答打分，不支持智能体多轮交互');
+if(A2.ctl==='full'){ex('brft','托管训练，不能自定义算法');ex('mtrl','托管训练（LoRA），不能自定义算法或全参数')}
+if(A2.gpu==='no')ex('self','需要能运维 GPU 集群和分布式训练的团队');
+if(A2.aws==='yes'){ex('tinker','训练在 Thinking Machines 的基础设施上，数据离开 AWS 账户');ex('prime','训练在 Prime Intellect 的集群上，数据离开 AWS 账户');ex('oai','数据和模型在 OpenAI 平台')}
+if(A2.open==='yes')ex('oai','只能微调 OpenAI 闭源模型');
+ex('oai','自助微调平台正在关停：新组织已无法创建任务，现有客户 2027-01-06 起也不能');
+if(A2.ctl==='managed'){ex('ts','你只需要托管 LoRA，自写训练循环是多余的工作量');ex('tinker','你只需要托管 LoRA，自写训练循环是多余的工作量');ex('prime','按 GPU 小时的全参数训练超出需求');ex('self','超出需求：自建的运维成本高')}
+if(A2.bud==='small'&&!out.self)ex('self','常驻 GPU 集群不适合小规模验证；先用按用量付费的方案验证奖励和收益');
+/* priority order, consistent with lesson 09 */
+let order;
+if(A2.ctl==='managed')order=A2.turn==='single'?['brft','mtrl']:['mtrl'];
+else if(A2.gpu==='yes')order=A2.bud==='large'?['self','ts','tinker','prime']:['ts','tinker','prime','self'];
+else order=['ts','tinker','prime'];
+order=order.concat(Object.keys(OPTS).filter(x=>!order.includes(x)));
+const keep=order.filter(x=>!out[x]);
+let h='';
+if(A2.ctl==='full'&&A2.bud==='small'){const pre=A2.turn==='single'?'brft':'mtrl';h+=`<div class="tip" style="margin-top:0">第 09 课的建议：需要更多控制时，也可以先用 <b>${OPTS[pre].n}</b> 跑一次小实验，确认奖励设计和收益成立，再换到下面的方案。</div>`}
+if(!keep.length)h+='<p class="bad"><b>没有同时满足全部约束的方案。</b>最常见的冲突是“没有 GPU 团队 + 数据必须留在 AWS + 需要全参数”：可以先确认 SageMaker 训练会话 API 是否支持你需要的模型和训练方式，或者考虑招聘 / 外包 GPU 运维。</p>';
+keep.forEach((x,i)=>{h+=`<div class="sl-item${i===0?' first':''}"><b>${i===0?'首选：':'备选：'}${OPTS[x].n}</b><br>${OPTS[x].why}</div>`});
+h+='<details><summary>被排除的方案和原因</summary>'+Object.keys(OPTS).filter(x=>out[x]).map(x=>`<div class="sl-item out"><b>${OPTS[x].n}</b>：${out[x].join('；')}。</div>`).join('')+'</details>';
+h+='<p class="mut" style="font-size:13px">托管服务训练后能否导出权重，本页没有核实；如果客户要求“拿到权重自己部署”，请先查对应文档。</p>';
+$('#wz2-res').innerHTML=h}
+
+/* 7. vendor-claim checklist */
+const CK=[
+['同一底座','“前”和“后”是同一个底座模型、同一个 scaffold 和提示词吗？还是拿 RL 后的模型去比另一个模型？'],
+['评测设置一致','前后用的解码参数（temperature、推理强度、最大回合数）一致，并且等于上线时的设置吗？'],
+['留出与污染','测试题和训练任务是否分开？是否来自同一个环境或同一批文档？基准是否公开、是否已知有污染或测试缺陷？'],
+['样本量与方差','测试集有多少题？跑了几次？给出了置信区间、pass^k 或每题一致性吗？'],
+['拆分贡献','SFT、数据合成和 RL 各自贡献了多少？只报“SFT + RL”时，无法判断 RL 本身的作用。'],
+['判分可靠','判分是规则 / 测试，还是 LLM 评审？评审模型是谁，有没有做过校准（第 04 课 4.4）？'],
+['完成率与成本','空输出、超时、崩溃算失败还是被剔除了？训练和推理成本给了吗？'],
+['可复现','模型权重、环境、训练配置是否公开？第三方能不能复现？']];
+$('#ck').innerHTML=CK.map((c,i)=>`<label style="display:flex;align-items:flex-start;margin:6px 0"><input type="checkbox" data-i="${i}" style="margin-top:6px"><span><b>${c[0]}</b>：${c[1]}</span></label>`).join('');
+function ck(){const n=$$('#ck input').filter(i=>i.checked).length,m=CK.length;let t;
+if(n===m)t='<span class="ok">每一项都能在来源里找到答案。</span>可以把这个数字当作“在该设置下的结果”，再用客户自己的隐藏集验证一次。';
+else if(n>=5)t='<span class="warn">大部分可以核对。</span>把没勾的几项列成问题发给厂商；在得到答复前，只把数字当作方向性证据。';
+else t='<span class="bad">多数关键信息缺失。</span>这个数字更接近营销材料。不要用它做选型依据，直接在客户任务上做小规模对比实验（第 10 课）。';
+$('#ck-out').innerHTML=`已确认 <b>${n}</b> / ${m} 项。${t}`}
+$$('#ck input').forEach(i=>i.onchange=ck);ck();
 </script>
 </body></html>
