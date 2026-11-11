@@ -9,11 +9,26 @@
 .blk{position:absolute;top:2px;height:16px;border-radius:3px;font-size:10px;color:#fff;padding-left:3px;overflow:hidden;white-space:nowrap}
 .b-gen{background:var(--acc)}.b-train{background:var(--vio)}.b-sync{background:var(--warn)}
 .b-idle{background:repeating-linear-gradient(45deg,transparent,transparent 3px,color-mix(in srgb,var(--bad) 45%,transparent) 3px,color-mix(in srgb,var(--bad) 45%,transparent) 6px)}
+.plot{width:100%;height:170px;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+.plot text{font-size:11px;fill:var(--mut)}
+.plot .cv{fill:none;stroke-width:2.2}
+.ctl label{display:block;font-size:13px;color:var(--mut)}
+table.mini td,table.mini th{padding:4px 7px}
+.stack{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:8px 0}
+.stack div{height:100%;font-size:11px;color:var(--fg);padding-left:4px;white-space:nowrap;overflow:hidden;line-height:22px}
+.s-roll{background:color-mix(in srgb,var(--acc) 45%,var(--panel2))}
+.s-train{background:color-mix(in srgb,var(--vio) 45%,var(--panel2))}
+.s-sync{background:color-mix(in srgb,var(--warn) 55%,var(--panel2))}
+.s-0{background:color-mix(in srgb,var(--ok) 45%,var(--panel2))}
+.s-1{background:color-mix(in srgb,var(--acc2) 45%,var(--panel2))}
+.s-2{background:color-mix(in srgb,var(--warn) 45%,var(--panel2))}
+.s-3{background:color-mix(in srgb,var(--bad) 35%,var(--panel2))}
+.s-4{background:color-mix(in srgb,var(--bad) 65%,var(--panel2))}
 </style></head>
 <body><main>
 <span class="badge lv-adv">进阶班 · 07</span>
 <h1>系统架构与异步 Rollout</h1>
-<p class="lead">目标：知道一个 Agentic RL 系统由哪些组件组成，各自跑在什么资源上，为什么异步很重要。</p>
+<p class="lead">目标：知道一个 Agentic RL 系统由哪些组件组成，各自跑在什么资源上，一步训练的时间花在哪里，为什么异步很重要、代价是什么，以及怎么估算需要多少沙箱和多大带宽。本课的计算器都用同一个示例任务：每步 32 道题 × 每题 8 条轨迹，每条平均 20 回合。</p>
 
 <h2>1. 动手：点击组件看职责</h2>
 <div class="card">
@@ -39,9 +54,77 @@
 <div class="gantt" id="gantt" style="margin-top:10px"></div>
 <div id="gt-stat" class="res" style="margin-top:6px"></div>
 </div>
-<div class="tip">智能体任务的轨迹长度通常是长尾分布：有的 3 轮就结束，有的要 40 轮。同步模式下整批都要等最慢的那条；异步模式让训练和下一批采样重叠。AgentCore RL Toolkit 公开的 SWE-Gym 实验中，异步训练每 GPU 小时的奖励提升约高 22%。AReaL、slime、SkyRL 都把异步作为核心设计。代价是数据变成轻微 off-policy，需要第 06 课讲的修正。</div>
+<div class="tip">智能体任务的轨迹长度通常是长尾分布：有的 3 轮就结束，有的要 40 轮。同步模式下整批都要等最慢的那条；异步模式让训练和下一批采样重叠。AgentCore RL Toolkit 公开的 SWE-Gym 实验（Qwen3 Coder 30B）里，“异步 + 每步 2 个 mini-batch”的配置按每 GPU 小时的奖励提升比同步基线高约 22%（1.22 倍）；但“异步 + 每步 1 个 mini-batch”只有 0.98 倍，因为吞吐涨了、每个优化步的奖励提升却变慢了。AReaL、slime、SkyRL 都把异步作为核心设计。代价是数据变成 off-policy，需要第 06 课第 8 节讲的修正（本课第 5 节给出具体比例）。</div>
 
-<h2>3. 资源怎么分</h2>
+<h2>3. 一步训练的时间花在哪</h2>
+<p>先用一个具体例子把一步拆开。同步模式下一步分三段：<b>rollout</b>（所有轨迹跑完，等最慢的那条）、<b>训练</b>（对所有 token 做前向和反向）、<b>权重同步</b>（把新权重推给推理引擎）。下面每个输入都是示例值，换成你自己测到的数。</p>
+<pre><code>每回合时长   = 每回合生成 token / 单序列生成速度 + 每回合工具延迟
+平均轨迹时长 = 回合数 × 每回合时长
+rollout 阶段 = 平均轨迹时长 × (最慢 / 平均)          # 同步要等最慢的一条，倍数见第 4 节
+训练 token 数 = 轨迹数 × 回合数 × (生成 token + 环境 token)   # 环境 token 不算损失（mask），但要做前向和反向
+训练阶段     = 训练 token 数 / (每卡训练吞吐 × 训练卡数)
+权重同步     = 参数量 × 2 字节 (bf16) / 带宽                # 第 6 节细算</code></pre>
+<div class="card">
+<div class="grid g4 ctl">
+<div><label>每步题数 B</label><input type="number" id="ts-B" min="1" step="1" value="32"></div>
+<div><label>每题轨迹数 G</label><input type="number" id="ts-G" min="1" step="1" value="8"></div>
+<div><label>平均回合数</label><input type="number" id="ts-T" min="1" step="1" value="20"></div>
+<div><label>每回合生成 token</label><input type="number" id="ts-g" min="1" step="50" value="400"></div>
+<div><label>每回合环境 token（工具返回、观测）</label><input type="number" id="ts-e" min="0" step="100" value="1000"></div>
+<div><label>每回合工具延迟（秒）</label><input type="number" id="ts-tool" min="0" step="0.5" value="2"></div>
+<div><label>单序列生成速度（token/秒）</label><input type="number" id="ts-v" min="1" step="5" value="40"></div>
+<div><label>最慢 / 平均轨迹时长</label><input type="number" id="ts-tail" min="1" step="0.1" value="3.8"></div>
+<div><label>每卡训练吞吐（token/秒）</label><input type="number" id="ts-tput" min="1" step="100" value="2500"></div>
+<div><label>训练卡数</label><input type="number" id="ts-ngpu" min="1" step="1" value="16"></div>
+<div><label>参数量（十亿）</label><input type="number" id="ts-P" min="0.1" step="1" value="30"></div>
+<div><label>权重同步带宽（GB/秒）</label><input type="number" id="ts-bw" min="0.1" step="1" value="25"></div>
+</div>
+<div id="ts-bar" class="stack"></div>
+<div id="ts-out" class="res"></div>
+</div>
+<div class="tip">默认例子：256 条轨迹，每回合 400/40 = 10 秒生成 + 2 秒工具 = 12 秒，平均一条 240 秒。同步要等最慢的那条，按第 4 节默认分布约是平均的 3.8 倍，rollout 阶段 912 秒。训练 256 × 20 × 1400 = 716.8 万 token，16 张卡每卡 2500 token/秒，179.2 秒。30B 参数 bf16 共 60 GB，按 25 GB/秒同步要 2.4 秒。一步合计 1093.6 秒，其中 rollout 占 83%。如果没有长尾（倍数为 1），一步只要 421.6 秒。这说明在这个例子里，优化的第一目标是长尾等待，而不是训练速度或带宽。</div>
+<p class="mut">这是粗估：忽略了预填充（prefill）的计算、奖励计算时间和调度开销；单序列生成速度在并发变化时也会变（并发低时单条更快，但总吞吐更低）。每卡训练吞吐和生成速度都是示例假设，不同模型、硬件和并行策略差别很大，请用自己的 profiler 实测。</p>
+<p>还要注意一点：多轮任务不一定是 rollout 瓶颈。AgentCore RL Toolkit 的 SWE-Gym 报告指出，推理端对环境 token 是并行预填充（快），对智能体生成的 token 是逐个解码（慢）；训练端对两种 token 都并行做前向和反向。他们观察到平均轨迹里只有约 20% 的 token 来自智能体，在这种比例下推理和训练每卡吞吐大致相当，所以选了 1:1 的训练卡和推理卡比例。把上面的“每回合环境 token”调大，可以看到训练阶段的占比随之上升。</p>
+
+<h2>4. 长尾：同步模式为什么要等那么久</h2>
+<p>同步模式下，一批 N 条轨迹并发跑，rollout 阶段的时长由<b>最长的那一条</b>决定。最大值随 N 增长，平均值不变，所以批越大，等待越久。这里用对数正态分布模拟轨迹时长（把均值归一化为 1）：σ 越大，尾巴越长。σ 只是示例参数，请用自己任务的轨迹时长分布替换。</p>
+<pre><code>批内并发槽空闲比例 = 1 − Σ L_i / (N × max L_i) = 1 − 平均 / 最大</code></pre>
+<div class="card">
+<div class="grid g2">
+<div><label class="sl">长尾程度 σ（对数正态）= <b id="v-lt-sig">0.50</b></label><input type="range" id="lt-sig" min="0.1" max="1.5" step="0.05" value="0.5"></div>
+<div class="flex"><label><input type="checkbox" id="lt-cap"> 设长度上限 = 4 × 平均（截断）</label><button class="btn" id="lt-seed">换随机种子</button><span class="mut" id="lt-seedv"></span></div>
+</div>
+<div class="flex"><span class="mut">曲线显示的批大小 N：</span><span id="lt-Ns"></span></div>
+<div class="grid g2" style="margin-top:8px">
+<div id="lt-out" class="res" style="overflow-x:auto"></div>
+<div><div class="mut" style="font-size:13px">一批里仍在运行的轨迹比例随时间的变化（横轴以平均时长为 1）</div><svg class="plot" id="lt-svg" viewBox="0 0 320 170" preserveAspectRatio="none"></svg></div>
+</div>
+</div>
+<div class="tip">默认 σ = 0.5、N = 256 时，一批中最长轨迹的期望约为平均的 3.8 倍（第 3 节用的就是这个值），并发槽有约 72% 的时间在空等。N 从 8 增加到 1024，倍数从约 1.9 增加到约 4.6。最大值的增长大致与 exp(σ·√(2 ln N)) 同阶（这是渐近趋势，不是精确值），所以批越大越吃亏。截断能把空等降下来，但被截断的轨迹没有自然结束，奖励要按第 8 节的规则处理。</div>
+<p><b>“并发槽空闲”和“GPU 空闲”不是一回事。</b>推理吞吐随并发增长但会饱和，并发从 256 降到 20 时，GPU 不会空闲 92%，而是从高效的大批解码退化成低效的小批解码。AgentCore RL Toolkit 的报告里，同步基线每个推理副本的平均并发只有约 11，KV cache 平均利用率低于 25%；改成异步后平均并发约 34 到 38，吞吐提高到 1.38 到 1.42 倍。AReaL 论文也把“生成必须等最长的输出完成”列为同步系统 GPU 利用率低的主要原因。</p>
+
+<h2>5. 异步与陈旧度：有多少 token 来自旧策略</h2>
+<p>异步系统让 rollout 不停地跑，训练凑够一批就更新，于是一个训练批里混有不同版本权重生成的数据。<b>陈旧度</b> = 训练时的策略版本 − 生成这个 token 的版本。几个系统的做法：</p>
+<ul>
+<li><b>AReaL：</b>用超参数 η 限制最大陈旧度。当前版本为 i、已提交 N<sub>r</sub> 条轨迹、训练批大小 B 时，只有满足 ⌊(N<sub>r</sub> − 1)/B⌋ ≤ i + η 才提交新的生成请求；η = 0 就退化为同步 RL。组批时优先取较旧的轨迹。论文实验中代码任务用 η = 4，数学任务用 η = 8，推理卡和训练卡按 3:1 分配。</li>
+<li><b>可中断生成（partial rollout）：</b>AReaL 的 rollout worker 收到新权重时会中断正在生成的序列，丢弃旧权重算出的 KV cache，用新权重重算后继续解码。于是一条轨迹由多个版本的片段组成。论文用解耦 PPO 目标处理：区分采样用的行为策略 π<sub>behav</sub> 和作为信任域中心的近端策略 π<sub>prox</sub>，并证明分段生成仍等价于从某个行为策略采样。</li>
+<li><b>slime：</b>把训练（Megatron）、rollout（SGLang）和数据缓冲区解耦，仓库里的 <code>fully_async</code> 示例就是为“部分样本比其他样本长得多”的智能体场景准备的。</li>
+<li><b>SkyRL-Agent：</b>重点在 rollout 内部的调度：把每条轨迹拆成运行时初始化、智能体运行、奖励计算三个阶段，用三个有界队列让 CPU 阶段和 GPU 推理重叠。论文报告这种异步流水线比朴素的有界异步批处理快约 1.55 倍，生成阶段 GPU 利用率稳定在约 90%。</li>
+</ul>
+<p>下面的模拟按 AReaL 的规则限制提交速度：64 个 rollout 槽，每步训练 64 条轨迹，轨迹时长服从第 4 节的对数正态分布（平均 100 个时间单位，σ = 0.5），训练一步耗时可调，权重同步视为瞬间完成。它统计被训练的每个 token 的陈旧度。</p>
+<div class="card">
+<div class="grid g3">
+<div><label class="sl">最大陈旧度 k（AReaL 的 η）= <b id="v-st-k">2</b></label><input type="range" id="st-k" min="0" max="8" step="1" value="2"></div>
+<div><label class="sl">训练一步耗时（平均轨迹时长 = 100）= <b id="v-st-tr">60</b></label><input type="range" id="st-tr" min="10" max="300" step="10" value="60"></div>
+<div class="flex"><label><input type="checkbox" id="st-intr"> 可中断生成：新权重到达后，进行中的轨迹改用新权重</label></div>
+</div>
+<div id="st-bar" class="stack"></div>
+<div id="st-out" class="res"></div>
+</div>
+<div class="tip">默认 k = 2、不可中断：rollout 槽一直满载，每单位时间完成的训练步数是同步（k = 0）的约 3.6 倍；代价是只有约 0.2% 的 token 是严格同策略的，约 34% 落后 1 个版本，约 50% 落后 2 个，约 3% 落后 4 个以上。最长的轨迹会落后到 8 个版本：AReaL 的规则限制的是<b>提交</b>，一条很长的轨迹跑完时已经过了好几次更新，所以 AReaL 还要在组批时控制陈旧度。勾上“可中断生成”，同策略 token 升到约 9%，落后 4 个以上降到约 0.5%，代价是每次中断都要重算 KV cache（模拟里没有计入）。把 k 调到 0 就是同步：全部同策略，槽利用率只有约 28%。</div>
+<p><b>和第 06 课第 8 节连起来：</b>那里的简化例子假设每个版本让某个 token 的 log 概率同向变化 δ，落后 s 个版本后 ρ = e<sup>s·δ</sup>。δ = 0.05 时，s = 4 就有 ρ = 1.22，超过 1 + ε = 1.2，A &gt; 0 的这类 token 会被 clip 掉梯度。上面计算器里“落后 4 个以上”的比例，就是在这个简化假设下会失去梯度的 token 比例的上限估计。实际系统中常用的修正是截断重要性采样或掩码：AgentCore RL Toolkit 的 SWE-Gym 报告用了 verl 的 rollout correction（token 级比率、掩码阈值 2、decoupled 模式），在每步 2 个 mini-batch 的配置里，训练后期最多约 3% 的 token 被掩码。他们的结论是稳定性仍需持续监控，更长的训练可能需要更多对策。</p>
+
+<h2>6. 资源怎么分：共置还是分离</h2>
 <table>
 <tr><th>组件</th><th>资源类型</th><th>扩缩特点</th></tr>
 <tr><td>Rollout 工作池（智能体 + 沙箱）</td><td>CPU、内存、磁盘</td><td>并发量大（数百到数千），按需弹性；适合 serverless 或 K8s</td></tr>
@@ -49,23 +132,142 @@
 <tr><td>训练引擎</td><td>GPU</td><td>按模型大小和并行策略固定；可与推理共置（colocate）或分离</td></tr>
 <tr><td>奖励服务</td><td>CPU（LLM 评审时调用外部模型）</td><td>要快；Lambda 天然并行</td></tr>
 </table>
-<div class="note">共置（同一批 GPU 轮流做推理和训练）省卡但有切换开销；分离部署利用率更高但需要跨机权重同步。verl 默认偏共置，slime 等框架更强调分离和异步。</div>
+<div class="note">共置（同一批 GPU 轮流做推理和训练）省卡但有切换开销；分离部署让推理和训练同时跑，但需要跨机权重同步，还要定好两边的卡数比例。verl 的 HybridFlow 论文设计了 3D-HybridEngine，在同一批卡上把 actor 模型在训练和生成两种并行布局之间重新切分（resharding），做到零显存冗余并减少通信；AReaL、slime 等框架更强调分离和异步。</div>
+<h3>6.1 权重同步要多久</h3>
+<p>分离部署每一步都要把新权重从训练卡传到推理卡。最简单的估算是“字节数 / 带宽”。下面的带宽预设是<b>示例假设</b>，不是某款硬件的规格；实际有效带宽取决于网卡数量、拓扑、通信库和是否与计算重叠，请实测。</p>
+<pre><code>同步时间 ≈ 参数量 × 每参数字节数 / 有效带宽
+30B × 2 字节 (bf16) = 60 GB;  60 GB / 25 GB/秒 = 2.4 秒      # 1 GB/秒 = 8 Gb/秒</code></pre>
+<div class="card">
+<div class="grid g3 ctl">
+<div><label>同步的参数量（十亿；只训 LoRA 时填适配器参数量）</label><input type="number" id="ws-P" min="0.001" step="1" value="30"></div>
+<div><label>每参数字节数</label><select id="ws-b" class="btn"><option value="2" selected>bf16 / fp16：2</option><option value="1">fp8：1</option><option value="4">fp32：4</option></select></div>
+<div><label>有效带宽（GB/秒）</label><input type="number" id="ws-bw" min="0.01" step="1" value="25"></div>
+<div><label>一步总时长（秒，第 3 节的结果）</label><input type="number" id="ws-step" min="1" step="10" value="1094"></div>
+<div><label>共置时一次切换开销（秒，示例假设）</label><input type="number" id="ws-sw" min="0" step="5" value="20"></div>
+</div>
+<div class="flex" style="margin-top:6px"><span class="mut">带宽预设（示例假设）：</span><button class="btn" data-bw="300">节点内高速互联 300</button><button class="btn" data-bw="100">跨节点高速网络 100</button><button class="btn" data-bw="25">跨节点普通网络 25</button><button class="btn" data-bw="5">经共享存储 5</button></div>
+<div id="ws-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<p>在第 3 节的例子里，跨机同步 2.4 秒只占一步的 0.2%，并不是瓶颈；共置如果每次切换（训练状态卸载、推理权重和 KV cache 重新加载、重新切分）要 20 秒，一步两次就是 40 秒，约占 3.7%。这两个开销都远小于长尾等待。所以选共置还是分离，主要看的是<b>能不能让 rollout 和训练重叠</b>，而不是带宽。</p>
+<table>
+<tr><th></th><th>共置更合适</th><th>分离更合适</th></tr>
+<tr><td>规模</td><td>卡少、模型小，单独留一批推理卡会让任一边吃不饱</td><td>卡多，两边都能各自喂饱</td></tr>
+<tr><td>轨迹长度分布</td><td>轨迹短、长度整齐，同步等待不严重</td><td>长尾严重，需要异步把等待藏起来</td></tr>
+<tr><td>训练方式</td><td>严格同策略、调试阶段（行为更容易复现）</td><td>能接受有界陈旧度并做离策略修正</td></tr>
+<tr><td>主要成本</td><td>每步两次切换；rollout 时训练状态要腾出显存</td><td>跨机权重同步；推理卡和训练卡的比例要调（AReaL 用 3:1，AgentCore RL Toolkit 的 SWE-Gym 实验用 1:1）</td></tr>
+</table>
+<p>减少同步量的做法：只训 LoRA 时只传适配器；slime 支持只发送变化了的权重字节（Delta Weight Sync，经共享存储），也支持连接训练任务之外管理的推理服务、通过磁盘在不同 GPU 集群之间更新；slime 生态中的 Relax 用 NCCL 广播把新权重异步推给 rollout，并和下一步训练重叠。</p>
 
+<h2>7. 要多少个沙箱：用 Little 定律估并发</h2>
+<p>排队论里的 Little 定律：系统里平均同时存在的任务数 = 到达（完成）速率 × 每个任务的平均停留时间。放到 rollout 上：</p>
+<pre><code>需要的并发会话数 = 目标吞吐（条/秒）× 平均轨迹时长（秒）
+2000 条/小时 × 240 秒 / 3600 = 133.3 个并发会话</code></pre>
+<p>反过来，如果你只能开 S 个沙箱，最大吞吐就是 S / 平均时长。并发上去以后，还有三个约束要一起看：推理端能不能装下这么多条上下文（KV cache）、生成吞吐够不够、下游工具扛不扛得住。</p>
+<div class="card">
+<div class="grid g4 ctl">
+<div><label>目标吞吐（条轨迹/小时）</label><input type="number" id="ll-X" min="1" step="100" value="2000"></div>
+<div><label>平均轨迹时长（分钟）</label><input type="number" id="ll-W" min="0.1" step="0.5" value="4"></div>
+<div><label>余量（长尾、重试，%）</label><input type="number" id="ll-head" min="0" step="10" value="30"></div>
+<div><label>AgentCore 区域默认配额</label><select id="ll-q" class="btn"><option value="5000" selected>美东（弗吉尼亚北部）/ 美西（俄勒冈）：5000</option><option value="2500">其他区域：2500</option></select></div>
+<div><label>平均回合数</label><input type="number" id="ll-T" min="1" step="1" value="20"></div>
+<div><label>每回合生成 token</label><input type="number" id="ll-g" min="1" step="50" value="400"></div>
+<div><label>每回合下游工具调用数</label><input type="number" id="ll-c" min="0" step="0.5" value="1"></div>
+<div><label>每条轨迹平均占用的 KV cache（token）</label><input type="number" id="ll-kv" min="1" step="1000" value="14000"></div>
+<div><label>每个推理副本的 KV 容量（token）</label><input type="number" id="ll-cap" min="1" step="100000" value="5000000"></div>
+<div><label>每个推理副本的生成吞吐（token/秒，示例假设）</label><input type="number" id="ll-dec" min="1" step="1000" value="10000"></div>
+</div>
+<div id="ll-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认值和第 3 节一致：一条轨迹 20 回合、平均 240 秒，最终上下文 20 × 1400 = 28,000 token，按线性增长平均占用约一半，即 14,000。每个推理副本 500 万 token 的 KV 容量取自 AgentCore RL Toolkit 报告里的例子（Qwen3 Coder 30B 在一个 p6 节点上约 5M token，按 64K 上下文只能放 78 条轨迹），换模型、换硬件都要重新测。生成吞吐 10,000 token/秒是示例假设。下游工具 QPS ≈ 并发数 × 每回合工具调用数 / 每回合时长 = 133.3 × 1 / 12 ≈ 11 次/秒：如果工具是一个限流 10 QPS 的内部 API，这里就已经超了。</div>
+<p>用公开数字核对一下量级：SageMaker AI 多轮 RL 的 Wordle 博客里，100 步训练共 105,486 条 rollout，用时 12 小时 40 分钟，平均约每小时 8,300 条。博客没有给出平均单条时长；<b>假设</b>一局平均 1 分钟，按 Little 定律平均约有 139 个会话同时在跑。同一篇博客也提到，他们在 32 个并发 rollout 时就遇到了凭证提供方被打满的问题（见第 8 节）。</p>
+
+<h2>8. Rollout 的可靠性</h2>
+<p>上千条并发轨迹里，总会有超时、崩溃、限流和环境故障。规则只有一条主线：<b>每条 rollout 都要在有限时间内结束，并且返回一个奖励</b>。</p>
+<ul>
+<li><b>超时分层：</b>单次工具调用、单回合、整条轨迹各设上限。整条轨迹的上限也决定了第 4 节的长尾截断位置。AgentCore Runtime 的同步请求最长 15 分钟，microVM 上的异步任务最长 8 小时，会话默认空闲 15 分钟后终止（可调）；AgentCore RL Toolkit 因此让入口立即返回一个 S3 key，智能体在后台跑完，训练端用 HEAD 请求轮询 S3 拿结果，不用为长轨迹一直挂着 TCP 连接。</li>
+<li><b>永远返回奖励：</b>SageMaker AI 多轮 RL 博客记录了两个坑：一条 rollout 从头到尾没有调用到策略模型，服务会以“No sampling requests were received”让整个训练任务失败；返回错误状态也会让任务失败。他们的做法是总返回一个奖励：模型被调用了但始终没给出有效猜测，就给最低分 −1.5（10 万多条 rollout 里有 51 条）。</li>
+<li><b>区分“模型的错”和“环境的错”：</b>工具超时、沙箱崩溃这类环境故障如果也给最低分，模型会因为基础设施问题被惩罚。更稳妥的做法是在调度器里重试，或者把这条轨迹标记为无效、从组里剔除，并单独统计故障率（第 05 课第 6.1 节的诊断顺序）。具体用哪种，要看你的框架是否允许组大小可变。</li>
+<li><b>隔离与复位：</b>每条轨迹独立的文件系统和状态。AgentCore Runtime 每个会话一个 microVM，CPU、内存和文件系统隔离，会话结束后 microVM 被终止、内存被清理；单会话最多 2 vCPU / 8 GB，会话存储最多 1 GB。需要更重的环境时，AgentCore RL Toolkit 的 Sandbox SDK 可以把命令和验证器放到单独的沙箱会话里执行，验证用的测试在智能体结束前不暴露给它。</li>
+<li><b>下游限流：</b>按第 7 节估算的 QPS 给每个下游服务设并发上限和退避重试；训练时尽量用本地模拟或快照数据库代替真实服务（第 10 课的实验就是这样设计的）。凭证也会被并发打满：SageMaker 博客里，每次调用都新建 botocore 会话来生成 token，在 32 个并发 rollout 时拖垮了凭证提供方；把 token 缓存一小时又会在凭证轮换后返回 403。修复是共用一个能自刷新的会话、短缓存、遇到 403 重新签名。</li>
+<li><b>训练期间不要重新部署智能体：</b>SageMaker 博客提醒，重新部署会重启 runtime，进行中的 rollout 收不到采样请求，整个任务失败。</li>
+</ul>
+<p>为什么单条失败率要压得很低：GRPO 按组计算优势，一组 G 条里只要有一条失败需要处理，这一组就受影响。单条失败率 p 时，一组全部正常的概率是 (1 − p)<sup>G</sup>：</p>
+<table>
+<tr><th>单条失败率 p</th><th>G = 8 时整组正常</th><th>G = 16 时整组正常</th></tr>
+<tr><td>0.5%</td><td>96.1%</td><td>92.3%</td></tr>
+<tr><td>1%</td><td>92.3%</td><td>85.1%</td></tr>
+<tr><td>2%</td><td>85.1%</td><td>72.4%</td></tr>
+<tr><td>5%</td><td>66.3%</td><td>44.0%</td></tr>
+</table>
+
+<h2>9. 映射到 AWS</h2>
+<table>
+<tr><th>层</th><th>AWS 方案</th><th>文档里写明的要点</th></tr>
+<tr><td>Rollout 工作池</td><td>Amazon Bedrock AgentCore Runtime</td><td>每个会话一个独立 microVM；按需扩缩；microVM 上的会话最长 8 小时（maxLifetime 可调，上限 8 小时），默认空闲 15 分钟终止；单会话最多 2 vCPU / 8 GB；同步请求最长 15 分钟。默认配额：活跃会话数在美东（弗吉尼亚北部）和美西（俄勒冈）为 5000、其他区域 2500，新会话创建速率 25 TPS，数据面 API 共 1000 TPS，三者都可申请提高。</td></tr>
+<tr><td>Rollout 网关 + 训练后端接入</td><td>AgentCore RL Toolkit（开源，Apache-2.0）</td><td>网关对智能体暴露 OpenAI / Anthropic 兼容接口，记录采样得到的 token id、logprob 和 loss mask；用 API key 字段里的会话 key 把多次调用归成轨迹。训练后端可选 verl、slime、SkyRL、Tinker 和 SageMaker Training Sessions。RolloutClient 提供并发控制、超时和会话清理。智能体代码通常只需换一个装饰器（<code>@app.rollout_entrypoint</code>）。</td></tr>
+<tr><td>托管多轮训练</td><td>Amazon SageMaker AI 多轮 RL</td><td>serverless：选好底座模型，服务负责训练和采样资源，用 LoRA 适配器训练；按百万 token 计费，分预填充、生成、训练三类。智能体部署在 AgentCore 上，或部署在 EKS / EC2 / Fargate 并通过 Lambda 转发。智能体通过 OpenAI 兼容的 Sample 接口调用策略模型，用 CompleteRollout 和 UpdateReward 上报结果，也支持逐回合奖励。Wordle 示例：100 步、105,486 条 rollout、12 小时 40 分钟，训练 token 费用约 339 美元，AgentCore 运行费用约 79 美元。</td></tr>
+<tr><td>自建训练集群</td><td>Amazon SageMaker HyperPod（可用 Amazon EKS 编排）或 Amazon EKS</td><td>HyperPod 提供长时间运行、有故障恢复能力的 GPU 集群，可以挂到 EKS 控制面上。在上面自己运行 verl 或 slime，rollout 仍交给 AgentCore Runtime。AgentCore RL Toolkit 的 verl 指南列出的前提：一个 GPU 集群、能调用 AgentCore Runtime 和停止会话的 AWS 凭证、AgentCore 容器到训练节点网关端口的网络路由。</td></tr>
+</table>
+<p class="mut">上表只列出了 AWS 文档和官方博客中写明的内容。配额和价格会变，以当前文档为准；没有写明的项目（例如具体实例型号的带宽）请按第 6 节自己测。</p>
+
+<h2>10. 症状 → 先查什么</h2>
+<table>
+<tr><th>你看到的情况</th><th>先查</th><th>相关章节</th></tr>
+<tr><td>一步耗时很长，推理 GPU 利用率忽高忽低</td><td>轨迹时长分布的 p50 / p99 和最大值；每个推理副本的并发曲线是不是在每批末尾掉到很低</td><td>第 3、4 节</td></tr>
+<tr><td>推理 KV cache 利用率很低（例如低于 25%）</td><td>并发是不是被提交速度、陈旧度上限或沙箱数量卡住了</td><td>第 5、7 节</td></tr>
+<tr><td>改成异步后，吞吐上去了，但每步奖励提升变慢</td><td>陈旧度分布、被截断或掩码的 token 比例；尝试调小 k 或调整每步 mini-batch 数，并按每 GPU 小时的奖励提升比较</td><td>第 5 节；第 06 课第 8 节</td></tr>
+<tr><td>训练卡在 rollout 阶段长时间空闲</td><td>训练卡和推理卡的比例；是否可以共置，或者让训练和下一批 rollout 重叠</td><td>第 2、6 节</td></tr>
+<tr><td>每步固定多出几十秒</td><td>权重同步或共置切换的耗时；是否只需同步 LoRA 或增量</td><td>第 6 节</td></tr>
+<tr><td>并发上去后大量 rollout 失败或超时</td><td>沙箱配额、会话创建速率、下游工具限流、凭证刷新</td><td>第 7、8 节</td></tr>
+<tr><td>整个训练任务突然失败</td><td>是否有 rollout 没调用模型或返回了错误状态；是否在训练期间重新部署了智能体</td><td>第 8 节</td></tr>
+<tr><td>同一批里组大小不一，或有些组全是最低分</td><td>环境故障是不是被记成了模型失败</td><td>第 8 节；第 05 课第 6.1 节</td></tr>
+</table>
+
+<h2>11. 小测验</h2>
 <div class="quiz" data-answer="2"><b>为什么 rollout 沙箱通常不和训练放在同一批 GPU 机器上？</b><br>
 <button class="btn opt">A. 沙箱需要 GPU</button><button class="btn opt">B. 安全原因，不能共存</button><button class="btn opt">C. 沙箱主要消耗 CPU 和内存，并发量和生命周期与 GPU 训练完全不同，分开才能各自弹性扩缩</button>
 <div class="qe">正确答案 C。这也是 AWS 用 AgentCore Runtime 承载 rollout、GPU 只做推理和训练的原因。</div></div>
+<div class="quiz" data-answer="1"><b>同步模式下，把每步的轨迹数从 64 增加到 1024（单条轨迹时长分布不变），rollout 阶段会怎样？</b><br>
+<button class="btn opt">A. 不变，因为平均轨迹时长没变</button>
+<button class="btn opt">B. 变长，并发槽空闲比例变高：批越大，最长那条的期望越大，整批都要等它</button>
+<button class="btn opt">C. 变短，因为大批次推理效率更高</button>
+<div class="qe">正确答案 B。最大值随 N 增长（对数正态下大致与 exp(σ·√(2 ln N)) 同阶）。第 4 节默认 σ = 0.5 时，最慢 / 平均从 N = 32 的约 2.6 增加到 N = 1024 的约 4.6。</div></div>
+<div class="quiz" data-answer="0"><b>目标每小时完成 3600 条轨迹，平均每条 5 分钟。按 Little 定律，平均需要多少个并发会话？</b><br>
+<button class="btn opt">A. 300</button>
+<button class="btn opt">B. 720</button>
+<button class="btn opt">C. 12</button>
+<div class="qe">正确答案 A。3600 条/小时 = 1 条/秒，乘以 300 秒 = 300 个并发会话。实际还要加上长尾和重试的余量，再对照 AgentCore 的活跃会话配额和推理端的 KV 容量。</div></div>
+<div class="quiz" data-answer="2"><b>AReaL 把最大陈旧度 η 设为 0 时，系统的行为是？</b><br>
+<button class="btn opt">A. 完全异步，rollout 不受限制</button>
+<button class="btn opt">B. 只训练落后正好 1 个版本的数据</button>
+<button class="btn opt">C. 退化为同步 RL：每批数据都由当前策略生成，rollout 要等这一批训练完才能提交下一批</button>
+<div class="qe">正确答案 C。论文明确写了 η = 0 时退化为同步 RL。第 5 节把 k 拖到 0 可以看到：全部 token 同策略，但 rollout 槽利用率只有约 28%。</div></div>
+
+<h2>12. 参考文献</h2>
+<ul>
+<li>Sheng et al. <a href="https://arxiv.org/abs/2409.19256">HybridFlow: A Flexible and Efficient RLHF Framework</a>（arXiv 2409.19256，verl 的论文）。混合单控制器 / 多控制器编程模型，3D-HybridEngine 在训练和生成之间重切分 actor，相比当时的基线吞吐提升 1.53 到 20.57 倍。</li>
+<li>Fu et al. <a href="https://arxiv.org/abs/2505.24298">AReaL: A Large-Scale Asynchronous Reinforcement Learning System for Language Reasoning</a>（arXiv 2505.24298）。完全异步、陈旧度上限 η 与提交规则、η = 4 / 8、可中断 rollout worker、解耦 PPO、推理与训练 3:1、相比同步系统最多 2.77 倍训练加速。</li>
+<li><a href="https://github.com/THUDM/slime">THUDM/slime</a>（GitHub README）。Megatron + SGLang + 数据缓冲区、<code>fully_async</code> 示例、Delta Weight Sync、外部 rollout 引擎、生态项目 Relax 与 APRIL。</li>
+<li>Cao et al. <a href="https://arxiv.org/abs/2511.16108">SkyRL-Agent: Efficient RL Training for Multi-turn LLM Agent</a>（arXiv 2511.16108）。三阶段异步流水线调度器，比朴素有界异步批处理快约 1.55 倍，生成阶段 GPU 利用率约 90%。</li>
+<li><a href="https://github.com/awslabs/agentcore-rl-toolkit">awslabs/agentcore-rl-toolkit</a> 及文档：<a href="https://awslabs.github.io/agentcore-rl-toolkit/guides/overview">Overview</a>、<a href="https://awslabs.github.io/agentcore-rl-toolkit/guides/verl-backend-setup/">verl backend setup</a>。</li>
+<li>AgentCore RL Toolkit 博客：<a href="https://awslabs.github.io/agentcore-rl-toolkit/blog/async-rl-performance-optimization/">Async RL Performance Optimization</a>（SWE-Gym，约 22% 的每 GPU 小时奖励提升、吞吐和并发表、约 20% 智能体 token、5M token KV 容量、rollout correction 与约 3% 掩码）；<a href="https://awslabs.github.io/agentcore-rl-toolkit/blog/training-multi-step-agents-rl/">Training multi-step agents on AgentCore Runtime with reinforcement learning</a>（会话隔离与路由、立即返回 S3 key 的后台执行、S3 轮询）。</li>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/bedrock-agentcore-limits.html">Quotas for Amazon Bedrock AgentCore</a>（活跃会话、创建速率、会话时长、每会话资源与存储）。</li>
+<li>AWS 博客：<a href="https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/">Multi-Turn Reinforcement Learning on Amazon SageMaker AI: A hands-on guide</a>（serverless、三类 token 计费、105,486 条 rollout、永远返回奖励、并发下的凭证问题、不要在训练中重新部署）。</li>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-mtrl-agent.html">Preparing your agent（SageMaker AI 多轮 RL）</a>（Sample / CompleteRollout / UpdateReward、AgentCore 与 Lambda 转发两种部署方式）；<a href="https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-eks.html">Orchestrating SageMaker HyperPod clusters with Amazon EKS</a>。</li>
+<li>本课程：<a href="06-advanced-algorithms.html">第 06 课第 8 节 离策略与异步修正</a>、<a href="05-intermediate-agentic-techniques.html">第 05 课 多轮训练关键技术</a>、<a href="10-aws-experiment.html">第 10 课 AWS 实验设计</a>。</li>
+</ul>
 </main>
 <script src="assets/common.js"></script>
 <script>
 const info={
-ctl:'<b>调度器</b>：决定每步取哪些任务、每组采几条、允许多大的版本落后；处理超时和重试，确保失败的 rollout 也能返回一个奖励。',
-env:'<b>Rollout 工作池</b>：运行智能体代码和它的环境（代码仓库、数据库、浏览器）。每条 rollout 需要独立隔离、可复位，规模往往是上百到上千并发。AgentCore Runtime 每个会话一个 microVM、按需扩缩、单会话最长 8 小时，适合承担这一层。',
+ctl:'<b>调度器</b>：决定每步取哪些任务、每组采几条、允许多大的版本落后；处理超时和重试，确保失败的 rollout 也能返回一个奖励（第 8 节）。',
+env:'<b>Rollout 工作池</b>：运行智能体代码和它的环境（代码仓库、数据库、浏览器）。每条 rollout 需要独立隔离、可复位，规模往往是上百到上千并发（第 7 节估算）。AgentCore Runtime 每个会话一个 microVM、按需扩缩、单会话最长 8 小时，适合承担这一层。',
 gw:'<b>Rollout 网关</b>：对智能体暴露标准 OpenAI / Anthropic 兼容接口，业务智能体代码不用为 RL 改造；内部把消息渲染成 token、调用推理引擎，并记录原始 token id、logprob 和 loss mask，按会话归组成轨迹。AgentCore RL Toolkit 提供这个组件。',
-inf:'<b>推理引擎</b>：用当前策略权重高吞吐地采样。vLLM、SGLang 是主流，需要支持在线热更新权重。',
+inf:'<b>推理引擎</b>：用当前策略权重高吞吐地采样。vLLM、SGLang 是主流，需要支持在线热更新权重。吞吐受并发和 KV cache 容量限制（第 4、7 节）。',
 rw:'<b>奖励服务</b>：执行验证器（测试、状态比对）或调用 LLM 评审。Bedrock RFT 用 Lambda 做奖励函数；SageMaker AI 多轮 RL 由智能体在轨迹结束时自己上报奖励；SWE 类任务通常在独立沙箱中跑测试。',
-buf:'<b>经验缓冲区</b>：存放（轨迹，奖励，采样时的权重版本号）。异步训练靠它把采样和训练解耦。',
-tr:'<b>训练引擎</b>：FSDP、Megatron 等分布式训练，计算 GRPO 等损失并更新参数，再通过 NCCL 或共享存储把权重同步给推理引擎。verl、slime、SkyRL、AReaL 主要在这一层和调度层做创新。',
-obs:'<b>观测与评测</b>：奖励曲线、熵、轨迹长度、工具调用成功率（MLflow）；每一回合的 trace（OpenTelemetry / CloudWatch）。读轨迹是发现奖励作弊的主要手段。'};
+buf:'<b>经验缓冲区</b>：存放（轨迹，奖励，采样时的权重版本号）。异步训练靠它把采样和训练解耦，版本号用来控制陈旧度（第 5 节）。',
+tr:'<b>训练引擎</b>：FSDP、Megatron 等分布式训练，计算 GRPO 等损失并更新参数，再通过 NCCL 或共享存储把权重同步给推理引擎（第 6 节）。verl、slime、SkyRL、AReaL 主要在这一层和调度层做创新。',
+obs:'<b>观测与评测</b>：奖励曲线、熵、轨迹长度、工具调用成功率（MLflow）；每一回合的 trace（OpenTelemetry / CloudWatch）。系统层面还要看推理并发、KV cache 利用率、陈旧度分布和 rollout 失败率（第 10 节）。'};
 $$('#archsvg .node').forEach(g=>g.addEventListener('click',()=>{$$('#archsvg .node').forEach(x=>x.classList.remove('hi'));g.classList.add('hi');$('#arch-info').innerHTML=info[g.dataset.k]}));
 let mode='sync',lens=[];
 function shuffle(){lens=[];for(let b=0;b<3;b++){const a=[];for(let i=0;i<4;i++){const u=Math.random();a.push(u<0.7?1+Math.random()*2:3+Math.random()*5)}lens.push(a)}}
@@ -78,5 +280,88 @@ h+=`<div class="lane"><div class="lb">训练 GPU</div><div class="tr">${tr.map(b
 let idle=0,busy=0;L.forEach(x=>x.forEach(k=>{if(k.c==='b-idle')idle+=k.d;if(k.c==='b-gen')busy+=k.d}));const p=idle/(idle+busy);
 $('#gt-stat').innerHTML=`3 个批次总耗时 <b>${tot.toFixed(1)}</b>（任意单位），rollout 槽空等占比 <b class="${p>0.3?'bad':'ok'}">${(p*100).toFixed(0)}%</b>。蓝=采样，紫=训练，黄=权重同步，红色斜纹=空等。`+(mode==='async'?' 异步模式下，后一批的部分轨迹由旧权重生成，需要离策略修正。':'')}
 seg([$('#gt-sync'),$('#gt-async')],b=>{mode=b.id==='gt-sync'?'sync':'async';draw()});$('#gt-shuffle').onclick=()=>{shuffle();draw()};shuffle();draw();
+</script>
+<script>
+/* shared helpers for sections 3-7 */
+const fx=(x,d=1)=>{const v=+(+x).toFixed(d);return (v===0?0:v).toFixed(d)};
+const num=(id,lo)=>{const v=+$(id).value;return Number.isFinite(v)?Math.max(lo,v):lo};
+const pct=(x,d=1)=>fx(x*100,d)+'%';
+const grp=x=>Math.round(x).toLocaleString('en-US');
+function rng(seed){let a=seed>>>0;return()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}}
+function lognorm(r,s){let u=0;while(u===0)u=r();const v=r();const z=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);return Math.exp(-s*s/2+s*z)}
+const stack=(parts)=>{const tot=parts.reduce((a,p)=>a+p.v,0)||1;return parts.map(p=>`<div class="${p.c}" style="width:${(p.v/tot*100).toFixed(2)}%" title="${p.t}">${p.v/tot>0.08?p.t:''}</div>`).join('')};
+
+/* 3. one training step */
+function tsDraw(){const B=Math.round(num('#ts-B',1)),G=Math.round(num('#ts-G',1)),T=num('#ts-T',1),g=num('#ts-g',1),e=num('#ts-e',0),tool=num('#ts-tool',0),v=num('#ts-v',0.1),tail=num('#ts-tail',1),tput=num('#ts-tput',1),ng=Math.round(num('#ts-ngpu',1)),P=num('#ts-P',0.01),bw=num('#ts-bw',0.01);
+const N=B*G,turn=g/v+tool,mean=T*turn,roll=mean*tail,tok=N*T*(g+e),train=tok/(tput*ng),sync=P*2/bw,tot=roll+train+sync,tot1=mean+train+sync;
+$('#ts-bar').innerHTML=stack([{v:roll,c:'s-roll',t:'rollout '+pct(roll/tot,0)},{v:train,c:'s-train',t:'训练 '+pct(train/tot,0)},{v:sync,c:'s-sync',t:'同步 '+pct(sync/tot,1)}]);
+$('#ts-out').innerHTML=`<table class="mini"><tr><th>阶段</th><th>怎么算</th><th>时长</th><th>占比</th></tr>
+<tr><td>rollout（等最慢的一条）</td><td>${fx(T,0)} 回合 × (${fx(g,0)}/${fx(v,0)} + ${fx(tool,1)}) 秒 = 平均 ${fx(mean,1)} 秒，× ${fx(tail,2)}</td><td><b>${fx(roll,1)} 秒</b></td><td>${pct(roll/tot)}</td></tr>
+<tr><td>训练</td><td>${grp(N)} 条 × ${fx(T,0)} 回合 × ${grp(g+e)} token = ${fx(tok/1e4,1)} 万 token，÷ (${grp(tput)} × ${ng})</td><td><b>${fx(train,1)} 秒</b></td><td>${pct(train/tot)}</td></tr>
+<tr><td>权重同步</td><td>${fx(P,1)}B × 2 字节 = ${fx(P*2,1)} GB，÷ ${fx(bw,1)} GB/秒</td><td><b>${fx(sync,1)} 秒</b></td><td>${pct(sync/tot,2)}</td></tr>
+<tr><td><b>一步合计</b></td><td></td><td><b>${fx(tot,1)} 秒</b>（${fx(tot/60,1)} 分钟）</td><td></td></tr></table>
+没有长尾（倍数 = 1）时一步 <b>${fx(tot1,1)} 秒</b>，长尾让一步变成 <span class="kpi">${fx(tot/tot1,2)}×</span>。
+<br><span class="mut">每回合里工具等待占 ${pct(tool/turn)}；如果推理和训练分开部署且同步执行，训练卡在一步里有 ${pct((roll+sync)/tot)} 的时间在等。</span>`}
+['#ts-B','#ts-G','#ts-T','#ts-g','#ts-e','#ts-tool','#ts-v','#ts-tail','#ts-tput','#ts-ngpu','#ts-P','#ts-bw'].forEach(i=>$(i).oninput=tsDraw);tsDraw();
+
+/* 4. long tail */
+const LT_NS=[8,32,128,256,512,1024],LT_R=400;let ltSeed=7,ltN=256;
+function ltStats(sig,N,seed,cap){const r=rng(seed);let sm=0,si=0,tr=0;for(let k=0;k<LT_R;k++){let mx=0,su=0;for(let i=0;i<N;i++){let l=lognorm(r,sig);if(cap&&l>cap){l=cap;tr++}su+=l;if(l>mx)mx=l}sm+=mx;si+=1-su/(N*mx)}return{emax:sm/LT_R,idle:si/LT_R,trunc:tr/(LT_R*N)}}
+$('#lt-Ns').innerHTML=LT_NS.map(n=>`<button class="btn${n===ltN?' on':''}" data-n="${n}">${n}</button>`).join('');
+seg($$('#lt-Ns .btn'),b=>{ltN=+b.dataset.n;ltDraw()});
+function ltDraw(){const sig=+$('#lt-sig').value,cap=$('#lt-cap').checked?4:0;$('#v-lt-sig').textContent=sig.toFixed(2);$('#lt-seedv').textContent='种子 '+ltSeed;
+let h='<table class="mini"><tr><th>批大小 N</th><th>最慢 / 平均（期望）</th><th>并发槽空闲比例</th>'+(cap?'<th>被截断的轨迹</th>':'')+'</tr>';
+LT_NS.forEach(n=>{const s=ltStats(sig,n,ltSeed+n,cap);h+=`<tr${n===ltN?' style="font-weight:700"':''}><td>${n}</td><td>${fx(s.emax,2)}</td><td class="${s.idle>0.5?'bad':s.idle>0.3?'warn':'ok'}">${pct(s.idle)}</td>${cap?`<td>${pct(s.trunc,2)}</td>`:''}</tr>`});
+h+=`</table><span class="mut">每个 N 用固定种子抽 ${LT_R} 批取平均，换种子后数字会有小幅波动。</span>`;
+$('#lt-out').innerHTML=h;
+const r=rng(ltSeed*31+ltN);const a=[];for(let i=0;i<ltN;i++){let l=lognorm(r,sig);if(cap)l=Math.min(l,cap);a.push(l)}a.sort((x,y)=>x-y);const mx=a[a.length-1];
+const X=t=>20+t/mx*290,Y=f=>150-f*130;let pts=[`${X(0).toFixed(1)},${Y(1).toFixed(1)}`];a.forEach((l,i)=>{pts.push(`${X(l).toFixed(1)},${Y((ltN-i)/ltN).toFixed(1)}`);pts.push(`${X(l).toFixed(1)},${Y((ltN-i-1)/ltN).toFixed(1)}`)});
+const mean=a.reduce((x,y)=>x+y,0)/ltN;
+$('#lt-svg').innerHTML=`<polygon points="20,150 ${pts.join(' ')} ${X(mx).toFixed(1)},150" style="fill:color-mix(in srgb,var(--acc) 22%,transparent)"/><polyline class="cv" points="${pts.join(' ')}" style="stroke:var(--acc)"/><line x1="${X(mean).toFixed(1)}" y1="14" x2="${X(mean).toFixed(1)}" y2="152" style="stroke:var(--warn)" stroke-dasharray="4,4"/><text x="${(X(mean)+4).toFixed(1)}" y="26">平均 ${fx(mean,2)}</text><text x="16" y="166">0</text><text x="282" y="166">${fx(mx,2)}</text><text x="24" y="14">100%</text><text x="${Math.min(X(mean)+4,200).toFixed(1)}" y="44">阴影外 = 空等</text>`}
+$('#lt-sig').oninput=ltDraw;$('#lt-cap').onchange=ltDraw;$('#lt-seed').onclick=()=>{ltSeed=(ltSeed*7919+13)%100000;ltDraw()};ltDraw();
+
+/* 5. staleness simulation (AReaL-style submission rule) */
+function staleSim(o){const r=rng(o.seed),C=o.C,B=o.B;let ver=0,started=0,training=false,trainEnd=0,steps=0,busy=0,tot=0,tokTot=0,maxS=0;const slots=Array(C).fill(null),buf=[],hist={};
+for(let t=0;t<o.T;t++){
+ if(training&&t>=trainEnd){ver++;training=false;steps++}
+ if(!training&&buf.length>=B){buf.sort((a,b)=>a.sv-b.sv||a.ft-b.ft);const bt=buf.splice(0,B);training=true;trainEnd=t+o.Ttr;
+  if(steps>=o.warm)bt.forEach(tr=>{for(const v in tr.c){const s=ver-(+v);hist[s]=(hist[s]||0)+tr.c[v];tokTot+=tr.c[v];if(s>maxS)maxS=s}})}
+ for(let i=0;i<C;i++){let tr=slots[i];
+  if(!tr&&Math.floor(started/B)<=ver+o.k){tr={sv:ver,rem:Math.max(1,Math.round(o.L*lognorm(r,o.sig))),c:{}};started++;slots[i]=tr}
+  tot++;if(tr){busy++;const v=o.intr?ver:tr.sv;tr.c[v]=(tr.c[v]||0)+1;tr.rem--;if(tr.rem<=0){tr.ft=t;buf.push(tr);slots[i]=null}}}}
+const h=[0,1,2,3].map(s=>(hist[s]||0)/(tokTot||1));return{util:busy/tot,stepsPer1k:steps/o.T*1000,h,ge4:Math.max(0,1-h.reduce((a,b)=>a+b,0)),maxS}}
+const ST_BASE={seed:3,C:64,B:64,L:100,sig:0.5,T:20000,warm:3};
+function stDraw(){const k=+$('#st-k').value,Ttr=+$('#st-tr').value,intr=$('#st-intr').checked;$('#v-st-k').textContent=k;$('#v-st-tr').textContent=Ttr;
+const s=staleSim({...ST_BASE,k,Ttr,intr}),s0=staleSim({...ST_BASE,k:0,Ttr,intr});
+const names=['同策略','落后 1','落后 2','落后 3','落后 ≥4'],vals=[...s.h,s.ge4];
+$('#st-bar').innerHTML=stack(vals.map((v,i)=>({v,c:'s-'+i,t:names[i]+' '+pct(v,0)})));
+$('#st-out').innerHTML=`<table class="mini"><tr>${names.map(n=>`<th>${n}</th>`).join('')}<th>最大陈旧度</th></tr><tr>${vals.map(v=>`<td>${pct(v)}</td>`).join('')}<td>${s.maxS}</td></tr></table>
+rollout 槽利用率 <b>${pct(s.util)}</b>（同步 k = 0 时 ${pct(s0.util)}）；每 1000 个时间单位完成 <b>${fx(s.stepsPer1k,2)}</b> 个训练步，是同步的 <span class="kpi">${fx(s.stepsPer1k/s0.stepsPer1k,2)}×</span>。
+<br><span class="mut">按第 06 课第 8 节的简化假设（每个版本 δ = 0.05），落后 ≥4 个版本的 token 的 ρ ≥ e<sup>0.2</sup> ≈ 1.22，超过 1.2：这部分占 ${pct(s.ge4)}。</span>`+(Ttr>100?'<br><span class="warn">训练一步比平均轨迹还慢：训练成了瓶颈，异步的收益变小，rollout 会被提交规则卡住。</span>':'')}
+$('#st-k').oninput=stDraw;$('#st-tr').oninput=stDraw;$('#st-intr').onchange=stDraw;stDraw();
+
+/* 6. weight sync */
+function wsDraw(){const P=num('#ws-P',0.001),b=+$('#ws-b').value,bw=num('#ws-bw',0.01),step=num('#ws-step',1),sw=num('#ws-sw',0);
+const gb=P*b,t=gb/bw;
+let h=`同步 ${fx(P,3).replace(/\.?0+$/,'')}B 参数 × ${b} 字节 = <b>${fx(gb,2)} GB</b>，按 ${fx(bw,1)} GB/秒（${fx(bw*8,0)} Gb/秒）约 <span class="kpi">${fx(t,2)} 秒</span>，占一步 ${fx(step,0)} 秒的 ${pct(t/step,2)}。<br>
+共置每步两次切换 2 × ${fx(sw,0)} = <b>${fx(2*sw,0)} 秒</b>，占一步的 ${pct(2*sw/step,2)}。`;
+h+='<table class="mini" style="margin-top:6px"><tr><th>带宽（示例假设）</th>'+[300,100,25,5].map(x=>`<th>${x} GB/秒</th>`).join('')+'</tr><tr><td>同步时间</td>'+[300,100,25,5].map(x=>`<td>${fx(gb/x,2)} 秒</td>`).join('')+'</tr></table>';
+$('#ws-out').innerHTML=h}
+['#ws-P','#ws-bw','#ws-step','#ws-sw'].forEach(i=>$(i).oninput=wsDraw);$('#ws-b').onchange=wsDraw;
+$$('[data-bw]').forEach(bt=>bt.onclick=()=>{$('#ws-bw').value=bt.dataset.bw;wsDraw()});wsDraw();
+
+/* 7. Little's law */
+function llDraw(){const X=num('#ll-X',1),W=num('#ll-W',0.01)*60,head=num('#ll-head',0)/100,q=+$('#ll-q').value,T=num('#ll-T',1),g=num('#ll-g',1),c=num('#ll-c',0),kv=num('#ll-kv',1),cap=num('#ll-cap',1),dec=num('#ll-dec',1);
+const L=X/3600*W,Lh=Math.ceil(L*(1+head)),rate=X/3600,turn=W/T,qps=L*c/turn,kvNeed=Lh*kv,rk=Math.ceil(kvNeed/cap),decNeed=X/3600*T*g,rd=Math.ceil(decNeed/dec);
+const ok=(v,lim)=>v<=lim?'ok':'bad';
+$('#ll-out').innerHTML=`平均并发 = ${grp(X)} / 3600 × ${fx(W,0)} 秒 = <span class="kpi">${fx(L,1)}</span> 个会话；加 ${fx(head*100,0)}% 余量后按 <b>${grp(Lh)}</b> 个准备。
+<table class="mini" style="margin-top:6px"><tr><th>约束</th><th>需要</th><th>上限 / 能力</th><th>结论</th></tr>
+<tr><td>AgentCore 活跃会话配额（默认，可申请提高）</td><td>${grp(Lh)}</td><td>${grp(q)}</td><td class="${ok(Lh,q)}">${pct(Lh/q)}</td></tr>
+<tr><td>新会话创建速率</td><td>${fx(rate,2)} 个/秒</td><td>25 TPS（默认，可申请提高）</td><td class="${ok(rate,25)}">${pct(rate/25)}</td></tr>
+<tr><td>推理 KV cache</td><td>${grp(Lh)} × ${grp(kv)} = ${fx(kvNeed/1e6,2)}M token</td><td>每副本 ${fx(cap/1e6,2)}M</td><td>${rk} 个副本（第一个用到 ${pct(Math.min(1,kvNeed/cap))}）</td></tr>
+<tr><td>推理生成吞吐</td><td>${grp(X)} / 3600 × ${fx(T,0)} × ${grp(g)} = ${grp(decNeed)} token/秒</td><td>每副本 ${grp(dec)} token/秒</td><td>${rd} 个副本</td></tr>
+<tr><td>下游工具 QPS</td><td>${fx(L,1)} × ${fx(c,1)} / ${fx(turn,1)} 秒 = <b>${fx(qps,1)}</b> 次/秒</td><td>看下游服务的限流</td><td class="mut">设并发上限和退避</td></tr></table>
+<span class="mut">推理副本数取 KV 和吞吐两者中较大的：至少 ${Math.max(rk,rd)} 个。只有 S 个沙箱时，最大吞吐 = S / 平均时长，例如 100 个沙箱最多每小时 ${grp(100/W*3600)} 条。</span>`}
+['#ll-X','#ll-W','#ll-head','#ll-T','#ll-g','#ll-c','#ll-kv','#ll-cap','#ll-dec'].forEach(i=>$(i).oninput=llDraw);$('#ll-q').onchange=llDraw;llDraw();
 </script>
 </body></html>
