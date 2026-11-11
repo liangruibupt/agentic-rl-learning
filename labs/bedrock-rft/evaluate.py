@@ -1,17 +1,27 @@
 """Score a base or fine-tuned model on the held-out test set with the same reward.
 
 Usage:
-  python evaluate.py --model openai.gpt-oss-20b --runs 3
-  python evaluate.py --model <FINE_TUNED_MODEL_ID> --runs 3
-Reports mean reward, exact-match rate (all four fields right) and per-field accuracy.
+  python evaluate.py --model openai.gpt-oss-20b --runs 3 --save base.jsonl
+  python evaluate.py --model <FINE_TUNED_MODEL_ID> --runs 3 --save ft.jsonl
+  python compare.py base.jsonl ft.jsonl          # paired bootstrap CIs
+Reports mean reward, exact match (all four fields right), strict exact match (also no
+format penalty), JSON format rate and per-field accuracy.
+
+Serving settings: evaluate both models with the SAME temperature and max_tokens, set to
+what you will serve with. Training rewards come from sampled rollouts, so they are not a
+substitute for this evaluation.
+
+Inference (Bedrock user guide, "Create and manage fine-tuning jobs for open-weight models",
+checked 2026-11-11): the fine-tuned model ID from jobs.retrieve(job_id).fine_tuned_model is
+called directly through the OpenAI-compatible Chat Completions or Responses API on
+bedrock-mantle.<region>.api.aws; no endpoint deployment is needed. Checkpoints listed by
+jobs.checkpoints.list() expose fine_tuned_model_checkpoint, which can be evaluated the same way.
 """
 import argparse
 import json
 import statistics
 
-from aws_bedrock_token_generator import provide_token
-from openai import OpenAI
-
+from compare import record_from, summarize
 from reward_lambda import WEIGHTS, score_one
 
 
@@ -22,30 +32,41 @@ def main():
     ap.add_argument("--test", default="test.jsonl")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--temperature", type=float, default=1.0, help="evaluate at the setting you will serve at")
+    ap.add_argument("--max-tokens", type=int, default=None, help="same value for base and fine-tuned runs")
+    ap.add_argument("--save", help="write one JSON line per (item, run) for compare.py")
     args = ap.parse_args()
-    client = OpenAI(base_url=f"https://bedrock-mantle.{args.region}.api.aws/v1", api_key=provide_token(region=args.region))
-    rows = [json.loads(line) for line in open(args.test, encoding="utf-8")]
 
-    run_means, run_exact = [], []
-    field_hits = {k: 0 for k in WEIGHTS}
-    total = 0
+    from aws_bedrock_token_generator import provide_token
+    from openai import OpenAI
+
+    rows = [json.loads(line) for line in open(args.test, encoding="utf-8")]
+    records = []
     for run in range(args.runs):
-        scores, exact = [], 0
+        # short-term Bedrock API keys expire; refresh once per run
+        client = OpenAI(base_url=f"https://bedrock-mantle.{args.region}.api.aws/v1", api_key=provide_token(region=args.region))
+        scores = []
         for r in rows:
-            out = client.chat.completions.create(model=args.model, messages=r["messages"], temperature=args.temperature)
+            kw = {"model": args.model, "messages": r["messages"], "temperature": args.temperature}
+            if args.max_tokens:
+                kw["max_tokens"] = args.max_tokens
+            out = client.chat.completions.create(**kw)
             text = out.choices[0].message.content or ""
             s, comps = score_one(text, r["reference_answer"])
             scores.append(s)
-            exact += int(s >= 0.999)
-            for k, w in WEIGHTS.items():
-                field_hits[k] += int(comps.get(k, 0) == w)
-            total += 1
-        run_means.append(statistics.mean(scores))
-        run_exact.append(exact / len(rows))
-        print(f"run {run + 1}: mean_reward={run_means[-1]:.3f} exact_match={run_exact[-1]:.3f}")
-    print(f"\nmodel={args.model} runs={args.runs} n={len(rows)}")
-    print(f"mean_reward {statistics.mean(run_means):.3f}  exact_match {statistics.mean(run_exact):.3f}")
-    print("field accuracy:", {k: round(v / total, 3) for k, v in field_hits.items()})
+            records.append(record_from(r.get("task_id"), run, s, comps, text, model=args.model))
+        run_recs = [x for x in records if x["run"] == run]
+        print(f"run {run + 1}: mean_reward={statistics.mean(scores):.3f} "
+              f"exact_match={statistics.mean(x['all_correct'] for x in run_recs):.3f}")
+    summ = summarize(records)
+    print(f"\nmodel={args.model} runs={args.runs} n={len(rows)} temperature={args.temperature} max_tokens={args.max_tokens}")
+    print(f"mean_reward {summ['score']:.3f}  exact_match {summ['all_correct']:.3f}  "
+          f"strict_exact {summ['strict_exact']:.3f}  format {summ['format']:.3f}  mean_chars {summ['chars']:.0f}")
+    print("field accuracy:", {k: round(summ['field_' + k], 3) for k in WEIGHTS})
+    if args.save:
+        with open(args.save, "w", encoding="utf-8") as f:
+            for x in records:
+                f.write(json.dumps(x, ensure_ascii=False) + "\n")
+        print("saved", len(records), "records to", args.save)
 
 
 if __name__ == "__main__":

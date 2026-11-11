@@ -7,11 +7,15 @@ textarea{width:100%;min-height:120px;background:var(--code);color:var(--fg);bord
 .chart line.ax{stroke:var(--line)}
 .chart text{font-size:11px;fill:var(--mut)}
 .chart polyline{fill:none;stroke-width:2.2}
+.ctl label.sl{margin-bottom:2px}
+.ctl input[type=number],.ctl select{width:100%;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font-family:inherit}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.src{font-size:12px;color:var(--mut)}
 </style></head>
 <body><main>
 <span class="badge lv-prac">落地班 · 11 实操</span>
 <h1>实操：用 Amazon Bedrock RFT 做单轮 RL</h1>
-<p class="lead">目标：在 1–2 天内亲手跑完一次强化微调：准备数据、写奖励 Lambda、提交 GRPO 训练任务、看懂训练指标、对比基线和微调后的模型。建议学完第 03、04 课后做。所有代码在仓库的 <code>labs/bedrock-rft/</code> 目录。</p>
+<p class="lead">目标：在 1–2 天内亲手跑完一次强化微调：准备并检查数据、写奖励 Lambda、提交 GRPO 训练任务、看懂训练指标、估算费用，最后用置信区间对比基线和微调后的模型。建议学完第 03、04 课后做。所有代码在仓库的 <code>labs/bedrock-rft/</code> 目录，离线单元测试不需要 AWS 账号。</p>
 
 <div class="card">
 <b>为什么先做单轮：</b>单轮 RL 去掉了环境、沙箱和多轮信用分配，只剩下“数据 + 奖励 + 训练”这条主线，最适合第一次动手。奖励设计、指标判读、评测方法和第 10 课的多轮实验完全通用。<br>
@@ -34,17 +38,24 @@ textarea{width:100%;min-height:120px;background:var(--code);color:var(--fg);bord
 <div id="fl-text" style="margin-top:8px;min-height:60px"></div>
 </div>
 
-<h2>2. 支持的模型（截至 2026-11 文档）</h2>
+<h2>2. 关键事实（2026-11-11 核对官方页面）</h2>
+<p>下表每一行都注明了来源。没有在官方页面找到的内容标为<b>未核实</b>，课程里用到这些量时会让你自己填，并标明“假设”。</p>
 <table>
-<tr><th>模型</th><th>Model ID</th><th>区域</th><th>调用方式</th></tr>
-<tr><td>Amazon Nova 2 Lite</td><td><code>amazon.nova-2-lite-v1:0:256k</code></td><td>us-east-1</td><td>Bedrock 控制台 / API，支持控制台配置模型评审</td></tr>
-<tr><td>OpenAI gpt-oss-20B</td><td><code>openai.gpt-oss-20b</code></td><td>us-west-2</td><td>OpenAI 兼容 API（本实操使用）</td></tr>
-<tr><td>Qwen3 32B</td><td><code>qwen.qwen3-32b</code></td><td>us-west-2</td><td>OpenAI 兼容 API</td></tr>
+<tr><th style="width:17%">项目</th><th>内容</th><th style="width:20%">来源</th></tr>
+<tr><td>支持的模型与区域</td><td>Amazon Nova 2 Lite <code>amazon.nova-2-lite-v1:0:256k</code>（us-east-1）；OpenAI gpt-oss-20B <code>openai.gpt-oss-20b</code>（us-west-2）；Qwen3 32B <code>qwen.qwen3-32b</code>（us-west-2）。后两个开源权重模型走 OpenAI 兼容 API，端点 <code>bedrock-mantle.us-west-2.api.aws</code>。<span class="warn">定价页把开源权重 RFT 的区域写成 us-east-1 和 us-west-2，用户指南的端点表只列了 us-west-2；本课按用户指南用 us-west-2。</span></td><td class="src">用户指南：Reinforcement fine-tuning；Fine-tune open-weight models using OpenAI-compatible APIs；Bedrock 定价页</td></tr>
+<tr><td>数据格式与大小</td><td>OpenAI chat completions 格式的 JSONL，每行一个 prompt，<b>100–20K 条</b>；必填 <code>messages</code> 和 <code>reference_answer</code>；其他字段会放进 <code>metadata</code> 传给奖励函数。Nova 页面写的是最多 20K 条 prompt。<span class="warn">最佳实践博客写的是 100–10,000 条，与用户指南不一致，以用户指南为准。</span></td><td class="src">用户指南：Prepare data for open-weight models；Fine-tune Amazon Nova models；Best practices 博客</td></tr>
+<tr><td>奖励 Lambda 输入</td><td>一个列表，每项有 <code>id</code>、<code>messages</code>（含模型的 assistant 回答）、<code>metadata</code>。用户指南把 <code>reference_answer</code> 放在 <code>metadata</code> 里；aws-samples 的 GSM8K 奖励函数从顶层读 <code>reference_answer</code>。本课的 <code>reward_lambda.py</code> 两种位置都支持。</td><td class="src">用户指南：Setting up reward functions for open-weight models；aws-samples <code>gsm8k_gptoss_rew_func.py</code></td></tr>
+<tr><td>奖励 Lambda 输出</td><td>一个列表，每项 <code>{"id", "aggregate_reward_score", "metrics_list"}</code>；<code>metrics_list</code> 每项 <code>{"name", "value", "type"}</code>，type 为 <code>"Reward"</code> 或 <code>"Metric"</code>。博客说分数在 0 到 1 之间。<span class="mut">本课上一版输出的 <code>reward_components</code> 不是文档字段，已改为 <code>metrics_list</code>。</span></td><td class="src">同上；AWS 技术演练博客</td></tr>
+<tr><td>Lambda 超时与权限</td><td>默认 3 秒太短，文档要求调高，<b>最长 15 分钟</b>，同时要求奖励函数在秒级完成。演练博客和 aws-samples 用 300 秒、512 MB。调用 RFT 的身份需要 <code>AmazonBedrockMantleFullAccess</code> 和对奖励函数的 <code>lambda:InvokeFunction</code>；在 Lambda 里调用 Bedrock 模型做评审时，Lambda 执行角色需要 <code>bedrock:InvokeModel</code>（Converse API 也用这个权限）。</td><td class="src">用户指南：reward functions；Access and security for open-weight models；Converse API 参考</td></tr>
+<tr><td>超参数</td><td>开源权重（OpenAI 兼容 API）只文档化了 <code>n_epochs</code>、<code>batch_size</code>、<code>learning_rate_multiplier</code>，示例值 1 / 4 / 1.0，博客建议倍率小于 1.0。Nova（CreateModelCustomizationJob）的超参数是 <code>batchSize</code>、<code>epochCount</code>、<code>evalInterval</code>、<code>inferenceMaxTokens</code>、<code>learningRate</code>、<code>maxPromptLength</code>、<code>reasoningEffort</code>、<code>trainingSamplePerPrompt</code>（示例 64 / 2 / 10 / 8192 / 1e-5 / 4096 / high / 4）。最佳实践博客：Bedrock RFT 用 rank 32 的 LoRA。</td><td class="src">用户指南：Create and manage fine-tuning jobs（两页）；Best practices 博客</td></tr>
+<tr><td>训练指标名</td><td>开源权重的 <code>list_events</code> 里，<code>type = "metrics"</code> 的事件在 <code>data</code> 里给出 <code>step</code>、<code>total_steps</code>、<code>critic_rewards_mean</code>、<code>critic_advantages_mean</code>、<code>actor_entropy</code>、<code>actor_pg_loss</code>、<code>actor_grad_norm</code>、<code>response_length_mean</code>。Nova 控制台和 CloudWatch 用斜杠写法：<code>critic/rewards/mean</code>、<code>actor/entropy</code>、<code>response_length/mean</code>、<code>val-score/rewards/mean@1</code>、<code>response/aborted_ratio</code> 等。</td><td class="src">AWS 技术演练博客的事件示例；用户指南：Nova 任务监控</td></tr>
+<tr><td>价格</td><td>gpt-oss-20b 和 Qwen3 32B：训练 <b>$80.00 / 训练小时</b>，存储 <b>$1.95 / 模型 / 月</b>；微调后按需推理：gpt-oss-20b 输入 $0.09、输出 $0.39，Qwen3 32B 输入 $0.20、输出 $0.78（每百万 token）。整个训练流程按小时计费。</td><td class="src">Bedrock 定价页 Model Customization → Reinforcement Fine Tuning Pricing</td></tr>
+<tr><td>调用微调后的模型</td><td>开源权重：任务成功后用 <code>jobs.retrieve(job_id).fine_tuned_model</code> 直接调 Chat Completions 或 Responses API，<b>不需要额外部署</b>；检查点的 <code>fine_tuned_model_checkpoint</code> 也能直接推理。Nova：要先为自定义模型创建按需部署（控制台一键），或用预置吞吐量。</td><td class="src">用户指南：open-weight 任务页；Nova 页；Evaluate your RFT model</td></tr>
+<tr><td>未核实</td><td>开源权重每个 prompt 采样几个回答（组大小）；每次 Lambda 调用里有几条回答；训练步数与数据量的关系（见第 4 节）；开源权重是否支持验证集文件；RFT 相关配额；Nova 2 Lite 的 RFT 价格；基座模型在 us-west-2 的按需推理价（定价页默认显示悉尼区域）。</td><td class="src">—</td></tr>
 </table>
-<p class="mut">训练数据要求 100–20,000 条。开源权重模型的奖励函数只能用自定义 Lambda；需要 LLM 评审时，在 Lambda 里调用 Bedrock 模型。</p>
 
 <h2>3. 数据格式</h2>
-<p>运行 <code>python make_dataset.py</code> 生成 400 条训练数据和 150 条测试数据。每行一条记录：</p>
+<p>运行 <code>python make_dataset.py</code> 生成 400 条训练数据和 150 条测试数据（仓库里已有用 <code>--seed 7</code> 生成的两个文件）。每行一条记录：</p>
 <pre><code>{"messages": [
    {"role": "system", "content": "你是电商客服工单分拣助手……priority 规则：1. 提到投诉、律师、报警、曝光，或 amount &gt; 1000 → high ……"},
    {"role": "user",   "content": "工单内容：订单A10234的商品有质量问题，请退我1299块钱。再不处理我就投诉！"}],
@@ -56,24 +67,111 @@ textarea{width:100%;min-height:120px;background:var(--code);color:var(--fg);bord
 <li>规则写进系统提示，任务才是“可学的”：奖励只告诉模型对不对，规则本身要让模型能看到。</li>
 </ul>
 
-<h2>4. 动手：奖励函数实验台</h2>
-<p>下面是 <code>reward_lambda.py</code> 打分逻辑的 JavaScript 版本。改动“模型输出”，看分数怎么变。打分方式：category 0.3 + priority 0.2 + order_id 0.3 + amount 0.2；JSON 解析失败得 0；每多一个字段扣 0.1。</p>
+<h2>4. 数据集设计：切分、难度、泄漏、规模</h2>
+<h3>4.1 三份数据各管什么</h3>
+<table>
+<tr><th>切分</th><th>本实操</th><th>用途</th><th>规则</th></tr>
+<tr><td>训练集</td><td><code>train.jsonl</code>，400 条</td><td>上传给 RFT</td><td>100–20K 条（用户指南）</td></tr>
+<tr><td>开发集</td><td><code>dev.jsonl</code>，可选 100 条（<code>--dev 100</code>）</td><td>挑检查点、调提示词和奖励</td><td>可以反复看。开源权重 API 是否接受验证集文件<b>未核实</b>，所以用 <code>evaluate.py</code> 在检查点上跑它</td></tr>
+<tr><td>测试集</td><td><code>test.jsonl</code>，150 条</td><td>最终对比基线和微调模型</td><td>训练前冻结，只跑一次，看完结果不再改奖励或提示词（第 04 课 4.7–4.8 的教训）</td></tr>
+</table>
+<p><code>make_dataset.py</code> 先生成训练集和测试集，再生成开发集，所以加上 <code>--dev</code> 不会改变已有的两个文件（已用 <code>cmp</code> 逐字节核对）。</p>
+
+<h3>4.2 用 <code>check_dataset.py</code> 检查</h3>
+<pre><code>python check_dataset.py --train train.jsonl --test test.jsonl [--dev dev.jsonl]</code></pre>
+<p>它做四件事：① 每行的格式（messages、参考答案的取值、订单号是否出现在原文里）；② 训练集条数是否在 100–20,000 之间；③ <b>泄漏</b>：把工单原文做 NFKC、转小写、去空白和标点后比较，测试集或开发集里只要有一条和训练集相同就报错；④ 难度和标签分布：按“哪条 priority 规则决定了答案”给每条打标签。对仓库里的数据，结果是：</p>
+<table>
+<tr><th>统计</th><th class="num">训练集（400）</th><th class="num">测试集（150）</th><th>说明</th></tr>
+<tr><td>规则 1：投诉等关键词 → high</td><td class="num">92</td><td class="num">32</td><td rowspan="5">priority 的决定规则。规则 1–2 需要推理，规则 3 是默认值</td></tr>
+<tr><td>规则 1：金额 &gt; 1000 → high</td><td class="num">35</td><td class="num">14</td></tr>
+<tr><td>规则 2：金额 200–1000 → medium</td><td class="num">52</td><td class="num">24</td></tr>
+<tr><td>规则 2：物流等待 &gt; 7 天 → medium</td><td class="num">53</td><td class="num">15</td></tr>
+<tr><td>规则 3：其他 → low</td><td class="num">168</td><td class="num">65</td></tr>
+<tr><td>陷阱：金额正好 200 或 1000（“含”边界）</td><td class="num">29</td><td class="num">15</td><td rowspan="2">打上任一陷阱标签算“难”</td></tr>
+<tr><td>陷阱：换货单带金额（amount 可有可无）</td><td class="num">49</td><td class="num">21</td></tr>
+<tr><td>易 / 中 / 难</td><td class="num">153 / 177 / 70</td><td class="num">59 / 62 / 29</td><td>难题占比 17.5% / 19.3%，两边接近</td></tr>
+<tr><td>与训练集完全相同的工单</td><td class="num">—</td><td class="num">0</td><td>没有直接泄漏</td></tr>
+<tr><td>与训练集同模板（只差数字和订单号）</td><td class="num">—</td><td class="num">94.7%</td><td class="warn">WARN：测试集只能衡量同分布准确率</td></tr>
+<tr><td>account / other 类别</td><td class="num">21 / 22</td><td class="num">1 / 2</td><td class="warn">WARN：测试集无法衡量这两类</td></tr>
+</table>
+<div class="note"><b>检查器发现的两个问题（生成器本身的缺陷，留作练习）：</b>① account 和 other 的模板里没有订单号和金额，每类最多只有 24 种不同文本（3 个模板 × 8 种结尾），去重后在训练集里就用完了，测试集分别只剩 1 条和 2 条，所以 category 准确率实际上只测了三个类别。② 测试集 94.7% 的工单和训练集用同一个模板，RFT 在这个测试集上的提升，<b>不能</b>说明模型学会了没见过的写法。改法：给 account / other 增加带变量的模板；另外写一批训练集里没有的句式（或英文工单）做一个“分布外”测试集，单独报告。</div>
+
+<h3>4.3 要多少数据</h3>
+<ul>
+<li><b>硬限制：</b>100–20K 条（用户指南）。本实操的 400 条在范围内。</li>
+<li><b>先小规模：</b>用户指南和最佳实践博客都建议先用 100–200 条验证奖励函数确实给出有意义的信号，再扩大。博客的经验：200–5,000 条泛化更稳定，复杂任务 5,000–10,000 条。</li>
+<li><b>要排除的数据：</b>基线模型每次都全对的题（奖励组内没有差异，见 5.1）和每次都 0 分的题。用 <code>evaluate.py --runs 3 --save</code> 在训练集上跑一遍基线，按每题的平均分筛掉两头。</li>
+<li><b>步数：</b>Nova 的最佳实践写的是“rollout 轮数 = 过滤后的数据量 ÷ batchSize”。按这个算，400 条、<code>batch_size = 4</code>、1 个 epoch 是 100 步。但开源权重是否同样计算<b>未核实</b>：aws-samples 的 GSM8K 训练文件有 300 条，300 ÷ 4 = 75，演练博客里的任务却是 67 步（如果自动留出 10% 做验证，270 ÷ 4 = 67.5，能对上，但文档没有这样写）。</li>
+</ul>
+
+<h2>5. 动手：奖励函数实验台</h2>
+<p>下面是 <code>reward_lambda.py</code> 打分逻辑的 JavaScript 版本。改动“模型输出”，看分数怎么变。打分方式：category 0.3 + priority 0.2 + order_id 0.3 + amount 0.2；找不到 JSON 对象得 0；格式扣分：每多一个字段扣 0.1，JSON 外面超过 20 个字符的文字扣 0.1，两项合计最多扣 0.15。</p>
 <div class="card">
 <div class="flex"><span class="mut">参考答案：</span><code id="ref-show"></code></div>
 <div class="flex" style="margin:8px 0"><span class="mut">试试这些输出：</span>
-<button class="btn" data-ex="perfect">完全正确</button><button class="btn" data-ex="pri">优先级错</button><button class="btn" data-ex="prose">只写了文字</button><button class="btn" data-ex="extra">多输出 reason 字段</button><button class="btn" data-ex="think">先推理再给 JSON</button></div>
+<button class="btn" data-ex="perfect">完全正确</button><button class="btn" data-ex="pri">优先级错</button><button class="btn" data-ex="prose">只写了文字</button><button class="btn" data-ex="extra">多输出 reason 字段</button><button class="btn" data-ex="think">先推理再给 JSON</button><button class="btn" data-ex="around">JSON 前面加说明</button><button class="btn" data-ex="nested">包一层 answer</button><button class="btn" data-ex="extra3">多 3 个字段</button></div>
 <textarea id="out"></textarea>
 <div id="score" class="res" style="margin-top:8px"></div>
 </div>
-<div class="tip"><b>为什么按字段给部分分：</b>如果只有“四个字段全对 = 1，否则 = 0”，训练初期大部分组里 8 个回答都是 0，GRPO 没有梯度（第 03 课）。按字段给分后，“对了 3 个”比“对了 1 个”分高，组内就有差异可以学。代价是模型可能满足于部分正确，所以评测时要单独看“全对率”。</div>
 
-<h2>5. 操作步骤</h2>
-<div class="phase"><span class="pill">第 1 步 · 环境</span>
+<h3>5.1 部分分还是全对才给分：看 GRPO 组里有多少“白算”</h3>
+<p>第 03 课讲过：一组回答的奖励完全相同时，所有优势都是 0，这组数据没有梯度。下面模拟一个 batch：每道题采样 G 个回答，每个字段按给定的准确率独立地对或错，然后数一数有多少道题的 G 个分数完全相同。“题间差异”控制难度是否因题而异：每道题的字段准确率从均值为设定值、集中度为 κ 的 Beta 分布里抽取，κ 越小，越多的题对模型来说“要么总对、要么总错”。</p>
+<div class="card">
+<div class="grid g4 ctl" id="gs-in"></div>
+<div id="gs-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认值（<b>假设</b>，用你自己的基线结果替换）：category 0.8、priority 0.3、order_id 0.9、amount 0.7，G = 8，κ = 4，400 道题，种子 7。四个字段全对的概率是 0.8 × 0.3 × 0.9 × 0.7 = 0.151。“全对才得 1 分”时约 41% 的组没有梯度（闭式解 40.6%），按字段给部分分时约 1.1%；本次 400 题（种子 7）的模拟结果是 43.0% 和 1.5%，差别来自抽样误差。这几个数已经用独立的 Python 程序核对过（10 万道题的蒙特卡洛：40.5% 和 1.2%）。再试两种情况：① κ 选“无”（每道题难度相同），全对方案仍有 26.9% 的组白算，部分分只有 0.09%；② 把四个准确率都调到 0.95，两种方案的零方差比例几乎一样（κ 选“无”时都是 19.4%，κ = 4 时都约 38%）：模型已经很强时，部分分也救不了，组里都是满分。这就是 Bedrock 文档说“奖励高于 95% 时 RFT 可能没有必要”的原因。<br><b>G 的取值：</b>开源权重 RFT 每个 prompt 采样几个回答没有公开（Nova 的超参数 <code>trainingSamplePerPrompt</code> 示例是 4），所以这里让你自己选。</div>
+<p><b>代价：</b>部分分让“对 3 个字段”也能拿 0.8，模型可能满足于部分正确。所以评测时要单独看“全对率”（第 10 节），不能只看平均奖励。</p>
+
+<h3>5.2 单调性与格式作弊检查</h3>
+<p>第 04 课第 2–3 节的原则搬到这里：<b>正确性决定档位，格式只在档位内微调。</b>本任务的“档位”是“答对了哪些字段”，加一个正确字段至少加 0.2 分（最小的字段权重），所以全部格式扣分加起来必须小于 0.2。本课上一版的奖励有两个漏洞，下表用两个版本的打分逻辑现场计算：</p>
+<div class="card"><div id="hack-out" class="res" style="overflow-x:auto"></div></div>
+<ul>
+<li><b>倒挂：</b>旧版每个多余字段扣 0.1 且不封顶。四个字段全对、但多输出了 3 个字段，得 0.7，低于“priority 答错但格式干净”的 0.8。模型学到的会是“少说话比答对更重要”。新版扣分封顶 0.15 &lt; 0.2，全对的最差情况 0.85 仍高于错一个字段的最好情况 0.8。</li>
+<li><b>包一层就满分：</b>旧版用正则找“最里层的 <code>{...}</code>”，<code>{"answer": {...}}</code> 也拿满分，但下游程序按顶层字段解析会失败。新版只认顶层 JSON 对象。</li>
+<li><b>前后加文字：</b>系统提示要求“只输出一个 JSON 对象”，旧版不检查。新版允许 20 个字符以内（例如 <code>```json</code> 代码块标记或“答案：”），超过扣 0.1。<code>&lt;think&gt;</code> 推理块会先被去掉，不算在内。</li>
+</ul>
+<p>这些检查写成了单元测试（<code>test_reward.py</code>）：枚举 4 个字段的全部 16 种对错组合，断言“多一个正确字段分数一定更高”，在干净输出和最差格式两种包装下都成立；所有作弊样例的得分都不超过干净答案。</p>
+
+<h2>6. 可选：用 LLM 评审给“回复用户”打分</h2>
+<p>四个字段都能用规则判定。如果还想让模型顺便写一句给用户的回复（<code>reply</code>，主观项），就需要 LLM 评审。<code>reward_lambda.py</code> 里有一条<b>默认关闭</b>的代码路径，写法沿用 <code>labs/llm-judge/judge.py</code>：逐项判是或否的 rubric、temperature 0（模型不接受时自动去掉）、解析失败或超时给中性分 0.5、把工单和回复放进标签并转义其中的标签。</p>
+<table>
+<tr><th>检查项（true = 好）</th><th>问题</th></tr>
+<tr><td><code>addresses_request</code></td><td>是否针对工单里的具体诉求，而不是只有客套话？</td></tr>
+<tr><td><code>no_unfounded_promise</code></td><td>是否没有承诺工单里没有依据的金额、时间或处理结果？</td></tr>
+<tr><td><code>polite_next_step</code></td><td>语气是否礼貌，并说明了下一步？</td></tr>
+<tr><td>长度（规则，不交给评审）</td><td>超过 80 个字符直接记 0，评审也不调用（第 04 课 4.3：长度单独处理）</td></tr>
+</table>
+<pre><code>reply_score = 3 个检查项的通过比例（评审失败 = 0.5，没有 reply 或超长 = 0）
+score = 0.9 × 字段分 + 0.1 × reply_score     # 四个字段全对时
+score = 0.9 × 字段分                          # 否则，不调用评审</code></pre>
+<p><b>为什么不会跨档：</b>全对档的最差情况是 0.9 × (1 − 0.15) + 0 = 0.765，三个字段对的最好情况是 0.9 × 0.8 = 0.72，评审最多只能在全对档内调整 0.1。这对应第 04 课 4.1 的两条：评审只进塑形项，只在“办成”的档位调用。只评全对的回答也省钱：调用次数 = rollout 数 × 全对比例。</p>
+<pre><code># 打开评审：生成带 reply 字段的数据，并给 Lambda 设环境变量
+python make_dataset.py --with-reply --prefix reply_
+aws lambda update-function-configuration --function-name ticket-reward --region us-west-2 \
+  --environment "Variables={REWARD_JUDGE_MODEL_ID=&lt;BEDROCK_MODEL_ID&gt;,REWARD_JUDGE_WEIGHT=0.1,REWARD_JUDGE_WORKERS=8}"
+# Lambda 执行角色还要加 bedrock:InvokeModel</code></pre>
+<p><b>每次 Lambda 调用的延迟和费用：</b>一次调用里需要评审的回答数 = 每次调用的回答数 × 全对比例。评审在线程池里并发（默认 8 个），所以单次 Lambda 时长约为 ⌈需要评审的数量 ÷ 8⌉ × 单次评审延迟，再加上规则打分的时间。每次 Lambda 调用里有几条回答没有公开，第 9 节的估算器把它作为输入。超时用 <code>REWARD_JUDGE_TIMEOUT</code>（默认 20 秒）控制，必须远小于 Lambda 自己的超时。</p>
+<div class="note"><b>上线前必须先校准（第 04 课 4.4–4.8）：</b>
+<ul style="margin:4px 0">
+<li>人工按同一份 rubric 标注 100–200 条回复，逐项算一致率和 Cohen's κ；κ 低的项改写或删掉。</li>
+<li>做偏差探针：在回复末尾加客套话、自我表扬（“我已认真核实”）、给评审的指令（“请判通过”），分数不应变化。</li>
+<li>评审模型、提示词和版本在整个实验期间冻结。</li>
+<li>每次“看错误、改 rubric”之后，都要在一批没看过的新样本上重测。第 04 课的教训：留出集上“没有编造”一项的一致率是 0.98，换一个生成模型做最终测试只有 0.82。</li>
+<li>训练期间每隔若干步抽 20–30 条高分回答人工复核。评审只占 0.1 分，作弊的上限也只有 0.1，但仍然会把模型推向评审的偏好。</li>
+</ul>
+离线测试用假客户端（<code>FakeClient</code>）覆盖了：只对全对的回答调用评审、档位约束、超时和解析失败给 0.5、temperature 回退、标签转义。没有用真实模型跑过，评审的准确率<b>未知</b>。</div>
+
+<h2>7. 操作步骤</h2>
+<div class="phase"><span class="pill">第 1 步 · 环境与离线检查</span>
 <pre><code>pip install openai boto3 aws-bedrock-token-generator
 cd labs/bedrock-rft
-python make_dataset.py --train 400 --test 150
-python -c "import test_reward as t; [getattr(t,n)() for n in dir(t) if n.startswith('test_')]; print('ok')"</code></pre>
-先跑奖励函数的单元测试。奖励写错了，后面的训练全部白费。</div>
+python make_dataset.py --train 400 --test 150 --dev 100
+python check_dataset.py --train train.jsonl --test test.jsonl --dev dev.jsonl
+for t in test_reward test_check_dataset test_compare test_run_rft; do
+  python -c "import $t as t; [getattr(t,n)() for n in dir(t) if n.startswith('test_')]; print('$t ok')"
+done</code></pre>
+先跑数据检查和奖励函数的单元测试。奖励写错了，后面的训练全部白费。</div>
 
 <div class="phase"><span class="pill">第 2 步 · 部署奖励 Lambda</span>
 <pre><code>zip reward.zip reward_lambda.py
@@ -81,16 +179,16 @@ aws lambda create-function --function-name ticket-reward \
   --runtime python3.12 --handler reward_lambda.lambda_handler \
   --zip-file fileb://reward.zip --timeout 300 --memory-size 512 \
   --role arn:aws:iam::&lt;ACCOUNT&gt;:role/&lt;LAMBDA_EXEC_ROLE&gt; --region us-west-2</code></pre>
-超时设为 5 分钟、内存 512 MB（与 AWS 博客一致；Lambda 默认 3 秒超时太短）。还要让 Bedrock 有权限调用这个函数，按用户指南 “Lambda permissions for reward functions” 一节配置。部署后用一条测试事件调用，确认返回 <code>[{"id": ..., "aggregate_reward_score": ...}]</code>。</div>
+超时 5 分钟、内存 512 MB 与演练博客一致（默认 3 秒太短，上限 15 分钟）。调用 RFT 的身份需要对这个函数的 <code>lambda:InvokeFunction</code> 权限，见用户指南 “Lambda permissions for reward functions”。部署后用一条测试事件调用，确认返回 <code>[{"id": ..., "aggregate_reward_score": ..., "metrics_list": [...]}]</code>。</div>
 
 <div class="phase"><span class="pill">第 3 步 · 测基线</span>
-<pre><code>python evaluate.py --model openai.gpt-oss-20b --runs 3</code></pre>
-记录平均奖励、全对率、每个字段的准确率。<b>判断要不要继续：</b>全对率接近 0，先改提示词或做 SFT；高于 95%，RL 意义不大（Bedrock 最佳实践）。</div>
+<pre><code>python evaluate.py --model openai.gpt-oss-20b --runs 3 --temperature 1.0 --save base.jsonl</code></pre>
+记录平均奖励、全对率、格式合格率、每个字段的准确率。<b>判断要不要继续：</b>奖励一直是 0，先改提示词或做 SFT；高于 95%，RFT 可能没有必要（用户指南最佳实践）。把各字段准确率填进 5.1 的模拟器，看全对方案会浪费多少组。</div>
 
 <div class="phase"><span class="pill">第 4 步 · 提交训练</span>
 <pre><code>python run_rft.py --lambda-arn arn:aws:lambda:us-west-2:&lt;ACCOUNT&gt;:function:ticket-reward \
-  --epochs 1 --batch-size 4 --lr-mult 0.5</code></pre>
-脚本会上传数据、创建任务，然后每分钟打印一次训练指标。核心调用：</div>
+  --epochs 1 --batch-size 4 --lr-mult 0.5 --save-events events.json</code></pre>
+脚本会上传数据、创建任务，然后每分钟分页读取全部事件并打印训练指标，结束时列出检查点。核心调用：</div>
 <pre><code>job = client.fine_tuning.jobs.create(
     model="openai.gpt-oss-20b",
     training_file=file_id,
@@ -98,16 +196,22 @@ aws lambda create-function --function-name ticket-reward \
         "grader": {"type": "lambda", "lambda": {"function": lambda_arn}},
         "hyperparameters": {"n_epochs": 1, "batch_size": 4, "learning_rate_multiplier": 0.5}}}})</code></pre>
 
-<div class="phase"><span class="pill">第 5 步 · 看训练指标</span>：见下一节的诊断实验台。</div>
+<div class="phase"><span class="pill">第 5 步 · 看训练指标</span>：把 <code>events.json</code> 的内容贴进第 8 节的图里。</div>
 <div class="phase"><span class="pill">第 6 步 · 评测微调后的模型</span>
-<pre><code>python evaluate.py --model &lt;FINE_TUNED_MODEL_ID&gt; --runs 3</code></pre>
-任务成功后，<code>client.fine_tuning.jobs.retrieve(job_id).fine_tuned_model</code> 就是模型 ID，可以直接按需调用，不需要部署端点。和基线用<b>同一个测试集、同一个 temperature</b> 对比。</div>
-<div class="phase"><span class="pill">第 7 步 · 清理</span>：删除 Lambda 函数和上传的文件。微调后的模型不调用就不产生推理费用；存储与托管费用以定价页为准。</div>
+<pre><code>python evaluate.py --model &lt;FINE_TUNED_MODEL_ID&gt; --runs 3 --temperature 1.0 --save ft.jsonl
+python compare.py base.jsonl ft.jsonl</code></pre>
+<code>jobs.retrieve(job_id).fine_tuned_model</code> 就是模型 ID，可以直接按需调用。和基线用<b>同一个测试集、同一组推理参数</b>（temperature、max_tokens）。想挑检查点，就把检查点的 <code>fine_tuned_model_checkpoint</code> 当作模型 ID 在 <code>dev.jsonl</code> 上跑，选好之后再在测试集上跑一次。</div>
+<div class="phase"><span class="pill">第 7 步 · 清理</span>：删除 Lambda 函数和上传的文件（<code>client.files.delete</code>）。训练好的模型按 $1.95 / 月收存储费，不再需要时删除；推理只在调用时按 token 计费。</div>
 
-<h2>6. 动手：看懂训练指标</h2>
-<p>训练事件里每一步都有这些指标：<code>critic_rewards_mean</code>（批次平均奖励，最该看）、<code>actor_entropy</code>（输出多样性）、<code>response_length_mean</code>（平均回复长度）、<code>actor_grad_norm</code>（梯度大小）。选一种情况，看曲线长什么样、该怎么处理：</p>
+<h2>8. 动手：看懂训练指标</h2>
+<p>训练事件里每一步都有这些指标：<code>critic_rewards_mean</code>（批次平均奖励，最该看）、<code>actor_entropy</code>（输出多样性）、<code>response_length_mean</code>（平均回复长度）、<code>actor_grad_norm</code>（梯度大小）。先选一种情况，看曲线长什么样、该怎么处理：</p>
 <div class="card">
-<div class="flex" id="dx-btns"><button class="btn on" data-d="ok">健康</button><button class="btn" data-d="collapse">熵塌缩</button><button class="btn" data-d="length">长度作弊</button><button class="btn" data-d="flat">没有学习信号</button><button class="btn" data-d="over">过拟合</button></div>
+<div class="flex" id="dx-btns"><button class="btn on" data-d="ok">健康</button><button class="btn" data-d="collapse">熵塌缩</button><button class="btn" data-d="length">长度作弊</button><button class="btn" data-d="flat">没有学习信号</button><button class="btn" data-d="over">过拟合</button><button class="btn" data-d="real">读你自己的事件</button></div>
+<div id="dx-real" style="display:none;margin-top:10px">
+<p class="mut" style="font-size:13px;margin:0 0 6px">贴入 <code>list_events</code> 的返回（<code>{"data": [...]}</code>）、事件数组、每行一个事件，或 <code>run_rft.py --save-events</code> 写出的文件。识别 <code>data</code> 里的 <code>critic_rewards_mean</code>、<code>actor_entropy</code>、<code>response_length_mean</code>，也认 Nova 的斜杠写法。数据只在浏览器里处理。</p>
+<textarea id="ev-in" spellcheck="false"></textarea>
+<div class="flex"><button class="btn" id="ev-sample">填入合成示例</button><button class="btn on" id="ev-go">解析并画图</button></div>
+</div>
 <div class="grid g3" style="margin-top:10px">
 <div><div class="mut" style="font-size:13px">奖励（训练 / 验证）</div><svg class="chart" id="ch-r" viewBox="0 0 300 200" preserveAspectRatio="none"></svg></div>
 <div><div class="mut" style="font-size:13px">策略熵</div><svg class="chart" id="ch-e" viewBox="0 0 300 200" preserveAspectRatio="none"></svg></div>
@@ -115,89 +219,292 @@ aws lambda create-function --function-name ticket-reward \
 </div>
 <div id="dx-text" class="res" style="margin-top:8px"></div>
 </div>
-<p class="mut" style="font-size:13px">曲线为示意，用来说明形态。作为参考，AWS 博客中 gpt-oss-20B 在 GSM8K 上的 RFT 共 67 步，平均奖励从约 0.56 升到 0.85–0.97，回复长度逐渐变短。</p>
+<p class="mut" style="font-size:13px">前五种曲线是示意。参考：演练博客里 gpt-oss-20B 在 GSM8K 上的 RFT 共 67 步，平均奖励从约 0.56 升到 0.85–0.97，回复长度逐渐变短；最佳实践博客认为熵在 0.8–1.1 属于健康的探索。用户指南列出的警示信号：奖励停在 0.15 以下、奖励方差随时间增大、验证表现下降。“读你自己的事件”里的自动提示只是课程的经验阈值（0.15 那条除外），最终要读回答原文判断。</p>
 
-<h2>7. 实验记录表</h2>
-<table>
-<tr><th>指标</th><th>基线</th><th>RFT 后</th><th>判定</th></tr>
-<tr><td>平均奖励（3 次均值）</td><td></td><td></td><td>提升，且 3 次之间的波动小于提升幅度</td></tr>
-<tr><td>全对率（四个字段都对）</td><td></td><td></td><td>主指标</td></tr>
-<tr><td>priority 准确率</td><td></td><td></td><td>最需要推理的字段，预期提升最多</td></tr>
-<tr><td>JSON 格式合格率</td><td></td><td></td><td>应接近 100%</td></tr>
-<tr><td>平均输出长度</td><td></td><td></td><td>不应显著变长</td></tr>
-</table>
-<p>进阶实验（任选）：① 把奖励改成“全对才得 1 分”，对比学习速度；② <code>learning_rate_multiplier</code> 分别取 0.25、0.5、1.0；③ 在测试集里加入训练中没有的工单写法（例如英文工单），看泛化。</p>
+<h2>9. 成本与时间估算</h2>
+<p>RFT 训练按小时计费，官方没有公布“多少数据要训练多少小时”，所以训练时长只能先填假设，再用 100–200 条的小规模试跑实测。其余几项都能从用量算出来。<b>单价规则：</b>官方页面上查到的才预填并标明来源，其他单价留空，留空的项目只显示用量、不计入合计。</p>
+<div class="card">
+<div class="grid g4 ctl" id="ce-in"></div>
+<div id="ce-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认值下：训练 10 小时（<b>假设</b>，与第 09 课一致）× $80 = $800，加 1 个月存储 $1.95；rollout 数 = 400 题 × 1 epoch × 8 个回答（G 为<b>假设</b>）= 3,200；每次 Lambda 调用 8 条回答（<b>假设</b>）时共 400 次调用，每次 0.1 秒（<b>假设</b>），Lambda 费用不到 1 美分；评测时微调模型跑 150 题 × 3 次 = 450 次调用，按 gpt-oss-20b 微调后的单价约 $0.07；基座模型单价留空。合计约 <b>$802.02</b>，几乎全是训练时长。打开 LLM 评审（全对比例 0.3、单次评审 2 秒，均为<b>假设</b>）后：评审调用 960 次，每次 Lambda 约 2.1 秒；评审模型单价请自己填。</div>
 
-<h2>8. 常见坑</h2>
+<h2>10. 评测与报告</h2>
+<h3>10.1 怎么比才公平</h3>
 <ul>
-<li><b>奖励函数报错：</b>某条记录抛异常时整批出错。示例代码对每条都做了异常兜底，出错记 0 分。</li>
-<li><b>推理模型先输出思考再输出 JSON：</b>只取最后一个 JSON 对象，并忽略思考块。</li>
-<li><b>奖励 Lambda 太慢：</b>Bedrock 建议秒级完成。需要 LLM 评审时，注意 Bedrock 调用的并发和延迟。</li>
-<li><b>测试集泄漏：</b>测试集要在训练前固定，并且不要和训练集共用同一批工单原文。</li>
-<li><b>只看训练奖励：</b>训练奖励来自采样时的 temperature；上线效果以第 6 步的独立评测为准。</li>
+<li><b>推理参数相同，且等于上线时的参数：</b>同一个测试集、同样的 temperature、max_tokens。训练奖励来自训练时的采样，不能代替这一步。</li>
+<li><b>四个指标分开报：</b>全对率（主指标）、各字段准确率（priority 预期提升最多）、JSON 格式合格率（应接近 100%）、平均输出长度（不应明显变长）。<code>evaluate.py</code> 还报告“严格全对”：全对且没有任何格式扣分。</li>
+<li><b>置信区间按题重抽、两组配对：</b><code>compare.py</code> 先把每题 3 次运行取平均，再对 150 道题有放回地抽 10,000 次，每次两组用同一批题号，取差值的 2.5% 和 97.5% 分位数。按单次运行重抽会把同一题的 3 次当成独立样本，区间会窄得过分（第 10 课 8.3）。</li>
+<li><b>同时报告题内相关 ρ：</b><code>compare.py</code> 会用第 10 课的公式从基线的 3 次运行估计 ρ，把它填进下面的功效计算器。</li>
 </ul>
 
-<h2>9. 从单轮到多轮</h2>
+<h3>10.2 150 道题能看出多大的提升</h3>
+<p>公式与第 10 课第 8 节相同：设计效应 DE = ρ + (1 − ρ) / R，有效题数 = n / DE。这里按两组独立来算；实际是同一批题配对比较，区间会更窄，所以下面的功效偏保守。</p>
+<div class="card">
+<div class="grid g4 ctl" id="pw-in"></div>
+<div id="pw-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认值：基线全对率 30%（<b>假设</b>，用第 3 步的结果替换）、真实提升 15 个百分点、150 道题、每题 3 次、ρ = 0.5（<b>假设</b>，用 <code>compare.py</code> 的估计替换）。设计效应 0.667，有效题数 225，功效约 91%；80% 功效下的最小可检测提升约 12.7 个百分点；真实提升只有 5 个百分点时功效约 20%，要 918 道题才到 80%。已用独立的蒙特卡洛核对（Beta-二项分布按 ρ 生成每题成功率，4,000 次重复）：5、10、15 个百分点的功效分别为 0.207、0.606、0.910，公式给出 0.204、0.605、0.910。</div>
+
+<h2>11. 实验记录表</h2>
+<table>
+<tr><th>指标</th><th>基线</th><th>RFT 后</th><th>差值 [95% CI]</th><th>判定</th></tr>
+<tr><td>全对率（四个字段都对，3 次均值）</td><td></td><td></td><td></td><td>主指标；CI 下限 &gt; 0 才算提升</td></tr>
+<tr><td>严格全对率（另加无格式扣分）</td><td></td><td></td><td></td><td>与全对率差距大，说明格式还没学好</td></tr>
+<tr><td>priority 准确率</td><td></td><td></td><td></td><td>最需要推理的字段，预期提升最多</td></tr>
+<tr><td>JSON 格式合格率</td><td></td><td></td><td></td><td>应接近 100%</td></tr>
+<tr><td>平均奖励</td><td></td><td></td><td></td><td>与全对率同向</td></tr>
+<tr><td>平均输出长度（字符）</td><td></td><td></td><td></td><td>不应明显变长</td></tr>
+<tr><td>题内相关 ρ（基线）</td><td></td><td>—</td><td>—</td><td>填回 10.2 重算功效</td></tr>
+</table>
+<p>进阶实验（任选，每个都先写下预期再跑）：① 把奖励改成“全对才得 1 分”，对比学习速度，并和 5.1 的模拟比较；② <code>learning_rate_multiplier</code> 分别取 0.25、0.5、1.0；③ 按 4.2 的建议做一个分布外测试集，看泛化；④ 打开第 6 节的评审，比较回复质量的人工评分和字段准确率是否下降。</p>
+
+<h2>12. 常见坑</h2>
+<ul>
+<li><b>奖励函数报错：</b>某条记录抛异常时整批出错。示例代码对每条都做了异常兜底，出错记 0 分；评审出错记中性分。</li>
+<li><b>推理模型先输出思考再输出 JSON：</b><code>&lt;think&gt;</code> 块先去掉，再只取最后一个顶层 JSON 对象。</li>
+<li><b>奖励 Lambda 太慢：</b>用户指南要求秒级完成。用 LLM 评审时只评全对的回答、并发调用、设置短超时。</li>
+<li><b>测试集泄漏：</b>测试集在训练前固定，用 <code>check_dataset.py</code> 确认没有和训练集重复的工单；同模板不算泄漏，但要知道它只测同分布。</li>
+<li><b>只看训练奖励：</b>训练奖励来自采样时的参数；上线效果以第 10 节的独立评测为准。</li>
+<li><b>短期 API key 过期：</b>脚本每轮轮询、每次评测都重新生成 token。</li>
+</ul>
+
+<h2>13. 从单轮到多轮</h2>
 <table>
 <tr><th></th><th>本实操（Bedrock RFT）</th><th>第 10 课（SageMaker AI 多轮 RL）</th></tr>
 <tr><td>一次 rollout</td><td>一个 prompt → 一个回答</td><td>智能体与环境多轮交互</td></tr>
 <tr><td>奖励在哪里算</td><td>Bedrock 调用你的 Lambda</td><td>智能体在轨迹结束时自己上报</td></tr>
 <tr><td>你要提供</td><td>数据 + Lambda</td><td>数据 + 部署在 AgentCore 的智能体（含环境与奖励）</td></tr>
-<tr><td>可复用的部分</td><td colspan="2">奖励设计思路、单元测试、指标判读、基线对比与评测方法</td></tr>
+<tr><td>计费</td><td>按训练小时（$80 / 小时）+ 存储 + 推理 token</td><td>按 token（第 10 课第 10 节）</td></tr>
+<tr><td>可复用的部分</td><td colspan="2">奖励设计思路、单调性测试、数据检查、指标判读、配对 bootstrap 与功效计算</td></tr>
 </table>
 
-<h2>参考资料</h2>
+<h2>14. 小测验</h2>
+<div class="quiz" data-answer="1"><b>基线四个字段的准确率都在 0.95 左右。改用按字段给部分分，零方差组的比例会怎样？</b><br>
+<button class="btn opt">A. 从约 19% 降到接近 0</button><button class="btn opt">B. 几乎不变</button><button class="btn opt">C. 从 0 升到约 19%</button>
+<div class="qe">正确答案 B。此时零方差的组大多是 8 个满分，两种方案下都没有差异：每题难度相同时两种方案都是 19.4%，κ = 4 时都约 38%（5.1 的模拟器可以验证）。部分分只在“有人全对、有人对一部分”的区间有用；模型已经很强时，RFT 本身的收益空间就小。</div></div>
+<div class="quiz" data-answer="2"><b>奖励里每个多余字段扣 0.1、不封顶。一个四个字段全对但多了 3 个字段的回答得 0.7，一个 priority 答错但格式干净的回答得 0.8。正确的修法是？</b><br>
+<button class="btn opt">A. 把多余字段的扣分提高到 0.3，让模型更怕多写</button><button class="btn opt">B. 去掉所有格式检查</button><button class="btn opt">C. 格式扣分总额封顶在最小字段权重 0.2 以下（例如 0.15）</button>
+<div class="qe">正确答案 C。这是第 04 课的“有界塑形”：正确性决定档位，格式只在档位内调整。封顶 0.15 后全对的最差情况是 0.85，仍高于错一个字段的 0.8。A 会让倒挂更严重；B 会放过“包一层”和“前后加文字”这类格式问题。</div></div>
+<div class="quiz" data-answer="0"><b>基线全对率 30%、预期提升 5 个百分点、150 道题各跑 3 次、ρ = 0.5。最合理的做法是？</b><br>
+<button class="btn opt">A. 先说明功效只有约 20%，要么扩大测试集（约 900 道），要么只报告差值和置信区间、不下“有提升”的结论</button><button class="btn opt">B. 每题从 3 次加到 30 次就够了</button><button class="btn opt">C. 直接跑，置信区间不含 0 就宣布有效</button>
+<div class="qe">正确答案 A。ρ = 0.5 时设计效应的下限是 0.5，每题跑再多次，有效题数也到不了 300（B 只能把功效从约 20% 提到约 25%）。C 的问题是功效太低：真有 5 个点的提升，80% 的概率看不出来；而一旦“看出来”，估计值往往被高估。</div></div>
+
+<h2>15. 参考资料（均于 2026-11-11 访问）</h2>
+<h3>AWS 官方</h3>
 <ul>
-<li><a href="https://aws.amazon.com/blogs/machine-learning/reinforcement-fine-tuning-on-amazon-bedrock-with-openai-compatible-apis-a-technical-walkthrough/">Reinforcement fine-tuning on Amazon Bedrock with OpenAI-Compatible APIs: a technical walkthrough</a></li>
-<li><a href="https://github.com/aws-samples/amazon-bedrock-samples/tree/main/custom-models/bedrock-reinforcement-fine-tuning">aws-samples：Bedrock RFT 完整 notebook 与奖励函数示例</a></li>
-<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Bedrock 用户指南：强化微调</a> · <a href="https://docs.aws.amazon.com/bedrock/latest/userguide/rft-prepare-data-open-weight.html">开源权重模型数据准备</a> · <a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reward-functions-open-weight.html">奖励函数</a></li>
-<li><a href="https://aws.amazon.com/blogs/machine-learning/reinforcement-fine-tuning-on-amazon-bedrock-best-practices/">Reinforcement fine-tuning on Amazon Bedrock: Best practices</a></li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Bedrock 用户指南：Customize a model with reinforcement fine-tuning</a>（支持的模型与区域；GRPO；最佳实践：先 100–200 条、0 分先 SFT、高于 95% 可能不需要、警示信号、奖励函数秒级完成）</li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/fine-tuning-openai-apis.html">Fine-tune open-weight models using OpenAI-compatible APIs</a>（端点 <code>bedrock-mantle.us-west-2.api.aws</code>；训练后直接推理）</li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/rft-prepare-data-open-weight.html">Prepare data for open-weight models</a>（100–20K 条；messages、reference_answer；其他字段进 metadata）</li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reward-functions-open-weight.html">Setting up reward functions for open-weight models</a>（Lambda 输入输出、metrics_list、超时最长 15 分钟）</li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/fine-tuning-openai-job-create.html">Create and manage fine-tuning jobs for open-weight models</a>（超参数示例、事件分页、检查点、推理）</li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/rft-open-weight-access-security.html">Access and security for open-weight models</a>（AmazonBedrockMantleFullAccess、lambda:InvokeFunction、评审需要 bedrock:InvokeModel）</li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/rft-nova-models.html">Fine-tune Amazon Nova models</a> · <a href="https://docs.aws.amazon.com/bedrock/latest/userguide/rft-submit-job.html">Nova RFT 任务与监控指标</a> · <a href="https://docs.aws.amazon.com/bedrock/latest/userguide/rft-evaluate-model.html">Evaluate your RFT model</a></li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html">Converse API 参考</a>（需要 bedrock:InvokeModel 权限）</li>
+<li><a href="https://aws.amazon.com/bedrock/pricing/">Amazon Bedrock 定价</a>（RFT：$80.00 / 训练小时，$1.95 / 模型 / 月；微调后推理 gpt-oss-20b $0.09 / $0.39，Qwen3 32B $0.20 / $0.78 每百万 token）</li>
+<li><a href="https://aws.amazon.com/lambda/pricing/">AWS Lambda 定价</a>（页面示例：$0.20 / 百万次请求，$0.0000166667 / GB-秒，us-east-1 x86）</li>
+<li><a href="https://aws.amazon.com/blogs/machine-learning/reinforcement-fine-tuning-on-amazon-bedrock-with-openai-compatible-apis-a-technical-walkthrough/">Reinforcement fine-tuning on Amazon Bedrock with OpenAI-Compatible APIs: a technical walkthrough</a>（事件字段示例；300 秒 / 512 MB Lambda；67 步 GSM8K 示例）</li>
+<li><a href="https://aws.amazon.com/blogs/machine-learning/reinforcement-fine-tuning-on-amazon-bedrock-best-practices/">Reinforcement fine-tuning on Amazon Bedrock: Best practices</a>（数据量经验、LoRA rank 32、batchSize 与 rollout 轮数、熵的健康范围）</li>
+<li><a href="https://github.com/aws-samples/amazon-bedrock-samples/tree/main/custom-models/bedrock-reinforcement-fine-tuning">aws-samples：Bedrock RFT notebook 与奖励函数</a>（GSM8K 训练文件 300 条；奖励函数输出 metrics_list）</li>
+</ul>
+<h3>本课程</h3>
+<ul>
+<li><a href="03-basics-grpo.html">第 03 课 GRPO 入门</a>（零方差组）· <a href="04-intermediate-reward-design.html">第 04 课 奖励设计</a>（2–3 有界塑形，4.4–4.8 评审校准）· <a href="09-build-your-own.html">第 09 课 客户自建</a>（成本对比）· <a href="10-aws-experiment.html">第 10 课 AWS 实验设计</a>（8 统计功效与 bootstrap）</li>
 </ul>
 </main>
 <script src="assets/common.js"></script>
 <script>
-/* flow stepper */
+/* ---------- shared helpers ---------- */
+const fmt=(x,d=2)=>Number.isFinite(x)?x.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+const pct=(x,d=1)=>Number.isFinite(x)?(100*x).toFixed(d)+'%':'—';
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function inputs(box,spec,onChange){const el=$(box);el.innerHTML=spec.map(s=>s.opts?
+ `<div><label class="sl">${s.l}</label><select id="${s.id}">${s.opts.map(o=>`<option value="${o[0]}"${o[0]==s.v?' selected':''}>${o[1]}</option>`).join('')}</select></div>`:
+ s.chk?`<div><label class="sl">${s.l}</label><select id="${s.id}"><option value="0"${s.v?'':' selected'}>关</option><option value="1"${s.v?' selected':''}>开</option></select></div>`:
+ `<div><label class="sl">${s.l}</label><input type="number" id="${s.id}" value="${s.v}" step="${s.step||'any'}" min="${s.min??0}"${s.max!==undefined?` max="${s.max}"`:''}></div>`).join('');
+ spec.forEach(s=>{$('#'+s.id).oninput=onChange;$('#'+s.id).onchange=onChange})}
+const num=id=>{const v=$('#'+id).value;return v===''?NaN:+v};
+
+/* ---------- flow stepper ---------- */
 const fl=[
-['f0','<b>① 准备数据。</b>JSONL，每行一个 prompt（OpenAI chat 格式）加参考答案。100–20,000 条。不需要“标准回答”，只需要能判定对错的信息。'],
-['f1','<b>② 上传。</b>用 OpenAI SDK 指向 Bedrock 的 Mantle 端点（<code>https://bedrock-mantle.&lt;region&gt;.api.aws/v1</code>），调用 <code>files.create(purpose="fine-tune")</code>。认证用 Bedrock API key，推荐短期 key。'],
-['f2','<b>③ 部署奖励 Lambda。</b>输入是一批“prompt + 模型回答 + 参考答案”，输出每条的 <code>aggregate_reward_score</code>（0–1）。训练期间会被高并发调用，要快且不能抛异常。'],
-['f3','<b>④ 创建 RFT 任务。</b>一次 <code>fine_tuning.jobs.create</code> 调用，指定模型、数据、grader 和超参。Bedrock 对每个 prompt 生成多个回答、调用 Lambda 打分、用 GRPO 更新权重。'],
-['f4','<b>⑤ 监控。</b><code>list_events</code> 返回每步的奖励、熵、回复长度、梯度范数；<code>checkpoints.list</code> 列出保存的检查点。'],
-['f5','<b>⑥ 按需推理。</b>任务成功后得到 <code>fine_tuned_model</code> ID，用 <code>chat.completions.create</code> 直接调用，按 token 计费。'],
-['f6','<b>⑦ 评测。</b>用独立测试集、相同 temperature，分别评测基线和微调模型，用同一个奖励函数打分。']];
+['f0','<b>① 准备数据。</b>JSONL，每行一个 prompt（OpenAI chat 格式）加参考答案，100–20,000 条。不需要“标准回答”，只需要能判定对错的信息。上传前用 <code>check_dataset.py</code> 查格式、泄漏和分布（第 4 节）。'],
+['f1','<b>② 上传。</b>用 OpenAI SDK 指向 Bedrock 的 Mantle 端点（<code>https://bedrock-mantle.us-west-2.api.aws/v1</code>），调用 <code>files.create(purpose="fine-tune")</code>。认证用 Bedrock API key，推荐短期 key。'],
+['f2','<b>③ 部署奖励 Lambda。</b>输入是一批“prompt + 模型回答 + 参考答案（在 metadata 里）”，输出每条的 <code>aggregate_reward_score</code> 和 <code>metrics_list</code>。训练期间会被高并发调用，要快且不能抛异常。'],
+['f3','<b>④ 创建 RFT 任务。</b>一次 <code>fine_tuning.jobs.create</code> 调用，指定模型、数据、grader 和超参（<code>n_epochs</code>、<code>batch_size</code>、<code>learning_rate_multiplier</code>）。Bedrock 对每个 prompt 生成多个回答、调用 Lambda 打分、用 GRPO 更新 LoRA 权重。'],
+['f4','<b>⑤ 监控。</b><code>list_events</code>（用 <code>after</code> 分页）返回每步的奖励、熵、回复长度、梯度范数；<code>checkpoints.list</code> 列出检查点，检查点也能直接推理。'],
+['f5','<b>⑥ 按需推理。</b>任务成功后得到 <code>fine_tuned_model</code> ID，用 <code>chat.completions.create</code> 直接调用，按 token 计费（gpt-oss-20b 微调后 $0.09 / $0.39 每百万输入 / 输出 token）。'],
+['f6','<b>⑦ 评测。</b>独立测试集、相同推理参数，分别评测基线和微调模型，用同一个奖励函数打分，再用配对 bootstrap 给出差值的置信区间。']];
 let fi=0;function fd(){$$('#flow .node').forEach(n=>n.classList.remove('hi'));$('#'+fl[fi][0]).classList.add('hi');$('#fl-text').innerHTML=fl[fi][1];$('#fl-cnt').textContent=`步骤 ${fi+1} / ${fl.length}`}
 $('#fl-next').onclick=()=>{fi=(fi+1)%fl.length;fd()};$('#fl-prev').onclick=()=>{fi=(fi-1+fl.length)%fl.length;fd()};fd();
 
-/* reward playground: JS port of reward_lambda.py */
+/* ---------- reward: JS port of reward_lambda.py (new) and the previous version (old) ---------- */
 const REF={category:'refund',priority:'high',order_id:'A10234',amount:1299};
 const W={category:0.3,priority:0.2,order_id:0.3,amount:0.2};
-$('#ref-show').textContent=JSON.stringify(REF);
-function extractJson(t){t=(t||'').slice(-4000).replace(/<think>[\s\S]*?<\/think>/g,'');const c=t.match(/\{[^{}]*\}/g)||[];for(let i=c.length-1;i>=0;i--){try{const o=JSON.parse(c[i]);if(o&&typeof o==='object'&&!Array.isArray(o))return o}catch(e){}}return null}
+const PEN={extra:0.1,prose:0.1,allow:20,cap:0.15};
+function stripThink(t){return (t||'').slice(-4000).replace(/<think>[\s\S]*?<\/think>/g,'')}
+function matchBrace(t,j){let d=0,inS=false,e=false;for(let k=j;k<t.length;k++){const c=t[k];if(inS){if(e)e=false;else if(c==='\\')e=true;else if(c==='"')inS=false;continue}
+ if(c==='"')inS=true;else if(c==='{')d++;else if(c==='}'){d--;if(d===0)return k+1}}return -1}
+function topLevelObjects(t){const out=[];let i=0;while(i<t.length){const j=t.indexOf('{',i);if(j<0)break;const e=matchBrace(t,j);let o=null;
+ if(e>0){try{o=JSON.parse(t.slice(j,e))}catch(x){o=null}}
+ if(o&&typeof o==='object'&&!Array.isArray(o)){out.push([j,e,o]);i=e}else i=j+1}return out}
+function parseResp(text){const t=stripThink(text);const objs=topLevelObjects(t);if(!objs.length)return[null,t.trim().length];const[s,e,o]=objs[objs.length-1];
+ return[o,(t.slice(0,s)+t.slice(e)).replace(/\s/g,'').length]}
 function norm(v){if(v===null||v===undefined)return null;if(typeof v==='string'){const s=v.trim();if(['','null','none'].includes(s.toLowerCase()))return null;return /^[A-Za-z]\d+$/.test(s)?s.toUpperCase():s.toLowerCase()}return v}
-function amtEq(p,g){if(g===null)return norm(p)===null;const a=parseFloat(p);return !isNaN(a)&&Math.abs(a-g)<0.01}
-function score(text){const p=extractJson(text);if(!p)return{s:0,rows:[['JSON 解析','失败',0]]};const rows=[];let t=0;
-for(const f in W){const ok=f==='amount'?amtEq(p.amount,REF.amount):norm(p[f])===norm(REF[f]);rows.push([f,ok?'正确':`错误（${JSON.stringify(p[f]??null)}）`,ok?W[f]:0]);t+=ok?W[f]:0}
-const ex=Object.keys(p).filter(k=>!(k in W));if(ex.length){rows.push([`多余字段 ${ex.join(', ')}`,'扣分',-0.1*ex.length]);t-=0.1*ex.length}
-return{s:Math.max(0,Math.min(1,t)),rows}}
-const EX={perfect:JSON.stringify(REF),pri:JSON.stringify({...REF,priority:'medium'}),prose:'这是一个退款工单，订单号 A10234，金额 1299 元，优先级高。',extra:JSON.stringify({...REF,reason:'金额超过 1000 且用户要投诉'}),think:'<think>金额 1299 > 1000，且提到投诉，所以 high。</think>\n'+JSON.stringify(REF)};
-function sc(){const r=score($('#out').value);$('#score').innerHTML=`<table><tr><th>检查项</th><th>结果</th><th>得分</th></tr>${r.rows.map(x=>`<tr><td>${x[0]}</td><td>${x[1]}</td><td>${x[2].toFixed(2)}</td></tr>`).join('')}</table>总分 <span class="kpi">${r.s.toFixed(2)}</span>`}
+function amtEq(p,g){if(g===null)return norm(p)===null;if(typeof p==='boolean'||p===null||p===undefined)return false;const a=Number(typeof p==='string'?p.trim():p);return p!==''&&Number.isFinite(a)&&Math.abs(a-g)<0.01}
+function fieldOk(p,ref,f){return f==='amount'?amtEq(p.amount,ref.amount):norm(p[f])===norm(ref[f])}
+function score(text,ref=REF){const[p,outside]=parseResp(text);if(!p)return{s:0,rows:[['JSON 对象','没找到',0]]};const rows=[];let t=0;
+ for(const f in W){const ok=fieldOk(p,ref,f);rows.push([f,ok?'正确':`错误（${esc(JSON.stringify(p[f]??null))}）`,ok?W[f]:0]);t+=ok?W[f]:0}
+ const ex=Object.keys(p).filter(k=>!(k in W));let pen=PEN.extra*ex.length+(outside>PEN.allow?PEN.prose:0);
+ if(ex.length)rows.push([`多余字段 ${esc(ex.join(', '))}`,'扣分',-PEN.extra*ex.length]);
+ if(outside>PEN.allow)rows.push([`JSON 外的文字 ${outside} 字符`,`超过 ${PEN.allow}，扣分`,-PEN.prose]);
+ if(pen>PEN.cap){rows.push(['格式扣分封顶',`最多扣 ${PEN.cap}`,pen-PEN.cap]);pen=PEN.cap}
+ return{s:Math.max(0,Math.min(1,t-pen)),rows}}
+function scoreOld(text,ref=REF){const t=(text||'').slice(-4000).replace(/<think>[\s\S]*?<\/think>/g,'');const c=t.match(/\{[^{}]*\}/g)||[];let p=null;
+ for(let i=c.length-1;i>=0;i--){try{const o=JSON.parse(c[i]);if(o&&typeof o==='object'&&!Array.isArray(o)){p=o;break}}catch(e){}}
+ if(!p)return 0;let s=0;for(const f in W)s+=fieldOk(p,ref,f)?W[f]:0;s-=0.1*Object.keys(p).filter(k=>!(k in W)).length;return Math.max(0,Math.min(1,s))}
+const J=o=>JSON.stringify(o);
+const EX={perfect:J(REF),pri:J({...REF,priority:'medium'}),prose:'这是一个退款工单，订单号 A10234，金额 1299 元，优先级高。',extra:J({...REF,reason:'金额超过 1000 且用户要投诉'}),
+think:'<think>金额 1299 > 1000，且提到投诉，所以 high。</think>\n'+J(REF),around:'好的，我来分析这张工单。用户要求退款并威胁投诉，金额较大，因此判断为高优先级：'+J(REF),
+nested:J({answer:REF}),extra3:J({...REF,reason:'x',confidence:0.9,note:'y'})};
+$('#ref-show').textContent=J(REF);
+function sc(){const r=score($('#out').value);$('#score').innerHTML=`<table><tr><th>检查项</th><th>结果</th><th class="num">得分</th></tr>${r.rows.map(x=>`<tr><td>${x[0]}</td><td>${x[1]}</td><td class="num">${x[2].toFixed(2)}</td></tr>`).join('')}</table>总分 <span class="kpi" id="score-total">${r.s.toFixed(2)}</span>`}
 $$('[data-ex]').forEach(b=>b.onclick=()=>{$('#out').value=EX[b.dataset.ex];sc()});$('#out').oninput=sc;$('#out').value=EX.pri;sc();
 
-/* diagnosis charts */
+/* ---------- 5.2 hack table ---------- */
+const HACKS=[['完全正确',EX.perfect,'满分基准'],['priority 答错，格式干净',EX.pri,'错一个字段的最好情况：0.80'],['全对 + 1 个多余字段',EX.extra,'扣 0.1'],['全对 + 3 个多余字段',EX.extra3,'旧版扣 0.3，跌破 0.80（倒挂）；新版封顶 0.15'],
+['全对，前面加一段说明',EX.around,'旧版不查 JSON 外的文字；新版扣 0.1'],['全对，包一层 {"answer": ...}',EX.nested,'旧版取到内层对象给满分；新版只认顶层，顶层只有 answer 一个字段'],['先猜错一次，再给正确答案',J({...REF,priority:'medium'})+'\n不对，应该是：'+J(REF),'只算最后一个对象，前一个算作 JSON 外的文字'],
+['全对，放在 ```json 代码块里','```json\n'+J(REF)+'\n```','代码块标记共 10 个字符，在 20 个字符的容忍范围内'],['全对，后面接 3,000 个句号',J(REF)+'。'.repeat(3000),'旧版不管长度；新版扣 0.1'],['先推理再给 JSON',EX.think,'<think> 块先去掉，不扣分']];
+(function(){const base=score(EX.pri).s;let h='<table><tr><th>模型输出</th><th class="num">旧版得分</th><th class="num">新版得分</th><th>说明</th></tr>';
+ HACKS.forEach(([n,t,note])=>{const o=scoreOld(t),s=score(t).s;const inv=n.startsWith('全对')&&o<base;const lax=n!=='完全正确'&&o===1&&s<1;
+ h+=`<tr><td>${esc(n)}</td><td class="num${inv||lax?' bad':''}">${o.toFixed(2)}</td><td class="num">${s.toFixed(2)}</td><td>${esc(note)}</td></tr>`});
+ $('#hack-out').innerHTML=h+'</table><span class="mut">红色是旧版的两类问题：全对的回答反而低于“priority 答错、格式干净”的 0.80（倒挂）；格式不合要求却拿满分（放过）。</span>'})();
+
+/* ---------- 5.1 GRPO zero-variance simulation ---------- */
+function gauss(r){let u=0,v=0;while(u===0)u=r();v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+function gamma(a,r){if(a<1){return gamma(a+1,r)*Math.pow(r(),1/a)}const d=a-1/3,c=1/Math.sqrt(9*d);for(;;){let x,v;do{x=gauss(r);v=1+c*x}while(v<=0);v=v*v*v;const u=r();
+ if(u<1-0.0331*x*x*x*x)return d*v;if(Math.log(u)<0.5*x*x+d*(1-v+Math.log(v)))return d*v}}
+function beta(a,b,r){const x=gamma(a,r),y=gamma(b,r);return x/(x+y)}
+const WV=[0.3,0.2,0.3,0.2];
+function simZV(ps,G,kappa,N,seed){const r=mulberry32(seed);let za=0,zp=0,sa=0,sp=0;
+ for(let i=0;i<N;i++){const pi=ps.map(p=>kappa>0?beta(p*kappa,(1-p)*kappa,r):p);const A=[],P=[];
+  for(let g=0;g<G;g++){let all=1,s=0;for(let f=0;f<4;f++){const ok=r()<pi[f];if(ok)s+=WV[f];else all=0}A.push(all);P.push(Math.round(s*1e4)/1e4)}
+  const ua=new Set(A).size===1,up=new Set(P).size===1;za+=ua;zp+=up;
+  const sd=a=>{const m=a.reduce((x,y)=>x+y,0)/a.length;return Math.sqrt(a.reduce((x,y)=>x+(y-m)**2,0)/a.length)};sa+=sd(A);sp+=sd(P)}
+ return{aon:za/N,par:zp/N,sdA:sa/N,sdP:sp/N}}
+function lbeta(a,b){return lgam(a)+lgam(b)-lgam(a+b)}
+function lgam(x){const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];let y=x,t=x+5.5;t-=(x+0.5)*Math.log(t);let s=1.000000000190015;for(let j=0;j<6;j++)s+=c[j]/++y;return -t+Math.log(2.5066282746310005*s/x)}
+function aonExact(ps,G,kappa){const Ep=(p,k)=>kappa>0?Math.exp(lbeta(p*kappa+k,(1-p)*kappa)-lbeta(p*kappa,(1-p)*kappa)):Math.pow(p,k);
+ const Eq=k=>ps.reduce((a,p)=>a*Ep(p,k),1);let s=Eq(G),c=1;for(let k=0;k<=G;k++){s+=c*(k%2?-1:1)*Eq(k);c=c*(G-k)/(k+1)}return s}
+function parExactHomog(ps,G){const m=new Map();for(let mask=0;mask<16;mask++){let pr=1,s=0;for(let f=0;f<4;f++){if(mask>>f&1){pr*=ps[f];s+=WV[f]}else pr*=1-ps[f]}const k=s.toFixed(4);m.set(k,(m.get(k)||0)+pr)}
+ let z=0;for(const v of m.values())z+=Math.pow(v,G);return z}
+inputs('#gs-in',[{id:'gs-c',l:'category 准确率',v:0.8,step:0.05,max:1},{id:'gs-p',l:'priority 准确率',v:0.3,step:0.05,max:1},{id:'gs-o',l:'order_id 准确率',v:0.9,step:0.05,max:1},{id:'gs-a',l:'amount 准确率',v:0.7,step:0.05,max:1},
+ {id:'gs-g',l:'每题回答数 G（<b>未公开</b>，自填）',v:8,step:1,min:2,max:64},{id:'gs-k',l:'题间差异',v:4,opts:[[0,'无（每题难度相同）'],[16,'弱（κ = 16）'],[4,'中（κ = 4）'],[1,'强（κ = 1）']]},{id:'gs-n',l:'模拟题数',v:400,step:50,min:50,max:5000},{id:'gs-s',l:'随机种子',v:7,step:1}],gsRun);
+function gsRun(){const ps=['c','p','o','a'].map(k=>Math.min(0.999,Math.max(0.001,num('gs-'+k))));const G=Math.round(num('gs-g')),k=+$('#gs-k').value,N=Math.round(num('gs-n')),seed=Math.round(num('gs-s'));
+ if(!(G>=2&&G<=64&&N>=50&&N<=5000)){$('#gs-out').innerHTML='<span class="warn">G 取 2–64，题数取 50–5000。</span>';return}
+ const sim=simZV(ps,G,k,N,seed),big=simZV(ps,G,k,20000,seed+1),q=ps.reduce((a,b)=>a*b,1);
+ const exA=aonExact(ps,G,k),exP=k>0?NaN:parExactHomog(ps,G);
+ $('#gs-out').innerHTML=`<table><tr><th>奖励方案</th><th class="num">零方差组（本次 ${N} 题）</th><th class="num">20,000 题估计</th><th class="num">精确值</th><th class="num">每 ${N} 题里有梯度的题</th></tr>
+ <tr><td>全对才得 1 分</td><td class="num" id="gs-aon">${pct(sim.aon)}</td><td class="num">${pct(big.aon)}</td><td class="num" id="gs-aon-ex">${pct(exA)}</td><td class="num">${Math.round(N*(1-sim.aon))}</td></tr>
+ <tr><td>按字段部分分</td><td class="num" id="gs-par">${pct(sim.par)}</td><td class="num">${pct(big.par)}</td><td class="num">${k>0?'—':pct(exP,2)}</td><td class="num">${Math.round(N*(1-sim.par))}</td></tr></table>
+ <span class="mut">四个字段全对的平均概率 = ${ps.join(' × ')} = <b>${q.toFixed(3)}</b>。精确值：全对方案用 Beta 分布的矩写出闭式解；部分分方案只在“每题难度相同”时有简单闭式解，题间有差异时看 20,000 题估计。</span>`}
+gsRun();
+
+/* ---------- 8. diagnosis charts ---------- */
 const N=40,xs=[...Array(N).keys()];
 const curves={
-ok:{r:x=>0.45+0.45*(1-Math.exp(-x/10)),v:x=>0.42+0.40*(1-Math.exp(-x/12)),e:x=>0.9-0.35*(1-Math.exp(-x/15)),l:x=>220-50*(1-Math.exp(-x/15)),t:'<span class="ok">健康：</span>训练奖励稳步上升后趋于平台，验证奖励同向；熵缓慢下降；长度稳定或略降。可以按验证集挑最好的检查点。'},
-collapse:{r:x=>0.45+0.3*(1-Math.exp(-x/5)),v:x=>0.42+0.2*(1-Math.exp(-x/5))-0.004*x,e:x=>0.9*Math.exp(-x/5)+0.02,l:x=>220-120*(1-Math.exp(-x/6)),t:'<span class="bad">熵塌缩：</span>熵很快接近 0，模型只会输出几种固定回答，奖励早早停涨。处理：降低 learning_rate_multiplier；检查奖励是否过于“一刀切”；增加数据多样性。'},
-length:{r:x=>0.45+0.35*(1-Math.exp(-x/10)),v:x=>0.42+0.12*(1-Math.exp(-x/10)),e:x=>0.9-0.2*(1-Math.exp(-x/15)),l:x=>220+18*x,t:'<span class="bad">长度作弊：</span>回复越来越长，训练奖励涨但验证奖励没跟上。通常是奖励在无意中奖励了长输出（例如在长文本里“碰巧”包含正确字段）。处理：严格只解析一个 JSON、对多余内容扣分、限制最大长度。'},
+ok:{r:x=>0.45+0.45*(1-Math.exp(-x/10)),v:x=>0.42+0.40*(1-Math.exp(-x/12)),e:x=>0.9-0.35*(1-Math.exp(-x/15)),l:x=>220-50*(1-Math.exp(-x/15)),t:'<span class="ok">健康：</span>训练奖励稳步上升后趋于平台，验证奖励同向；熵缓慢下降；长度稳定或略降。可以按开发集挑最好的检查点。'},
+collapse:{r:x=>0.45+0.3*(1-Math.exp(-x/5)),v:x=>0.42+0.2*(1-Math.exp(-x/5))-0.004*x,e:x=>0.9*Math.exp(-x/5)+0.02,l:x=>220-120*(1-Math.exp(-x/6)),t:'<span class="bad">熵塌缩：</span>熵很快接近 0，模型只会输出几种固定回答，奖励早早停涨。处理：降低 learning_rate_multiplier；检查奖励是否过于“一刀切”（5.1）；增加数据多样性。'},
+length:{r:x=>0.45+0.35*(1-Math.exp(-x/10)),v:x=>0.42+0.12*(1-Math.exp(-x/10)),e:x=>0.9-0.2*(1-Math.exp(-x/15)),l:x=>220+18*x,t:'<span class="bad">长度作弊：</span>回复越来越长，训练奖励涨但验证奖励没跟上。通常是奖励在无意中奖励了长输出（例如旧版奖励不检查 JSON 外的文字）。处理：只认一个顶层 JSON、对多余内容扣分（5.2）、限制最大长度。'},
 flat:{r:x=>0.05+0.01*Math.sin(x),v:x=>0.04+0.01*Math.cos(x),e:x=>0.85,l:x=>230,t:'<span class="warn">没有学习信号：</span>奖励一直接近 0（或一直接近 1），组内没有差异，GRPO 没有梯度。处理：检查 Lambda 是否真的解析到了答案（最常见是解析 bug）；给部分分；任务太难先做 SFT，太简单则不需要 RL。'},
-over:{r:x=>0.45+0.5*(1-Math.exp(-x/8)),v:x=>0.42+0.3*(1-Math.exp(-x/8))-0.006*Math.max(0,x-15),e:x=>0.9-0.5*(1-Math.exp(-x/10)),l:x=>210-30*(1-Math.exp(-x/10)),t:'<span class="warn">过拟合：</span>训练奖励继续升，验证奖励在中途开始下降。处理：用验证集最好的检查点；减少 epoch；增加训练数据多样性。'}};
-function poly(f,lo,hi,color,dash){const pts=xs.map(x=>`${(x/(N-1)*290+5).toFixed(1)},${(195-(f(x)-lo)/(hi-lo)*185).toFixed(1)}`).join(' ');return `<polyline points="${pts}" style="stroke:${color}" ${dash?'stroke-dasharray="5,4"':''}/>`}
-function axes(){return '<line class="ax" x1="5" y1="195" x2="295" y2="195"/><line class="ax" x1="5" y1="5" x2="5" y2="195"/>'}
-function dx(k){const c=curves[k];
+over:{r:x=>0.45+0.5*(1-Math.exp(-x/8)),v:x=>0.42+0.3*(1-Math.exp(-x/8))-0.006*Math.max(0,x-15),e:x=>0.9-0.5*(1-Math.exp(-x/10)),l:x=>210-30*(1-Math.exp(-x/10)),t:'<span class="warn">过拟合：</span>训练奖励继续升，验证奖励在中途开始下降。处理：用开发集最好的检查点；减少 epoch；增加训练数据多样性。'}};
+function polyArr(vals,lo,hi,color,dash){const n=vals.length;if(!n)return '';const pts=vals.map((v,i)=>`${((n===1?0.5:i/(n-1))*290+5).toFixed(1)},${(195-(v-lo)/((hi-lo)||1)*185).toFixed(1)}`).join(' ');return `<polyline points="${pts}" style="stroke:${color}" ${dash?'stroke-dasharray="5,4"':''}/>`}
+function poly(f,lo,hi,color,dash){return polyArr(xs.map(f),lo,hi,color,dash)}
+function axes(lo,hi){return '<line class="ax" x1="5" y1="195" x2="295" y2="195"/><line class="ax" x1="5" y1="5" x2="5" y2="195"/>'+(lo!==undefined?`<text x="9" y="16">${fmt(hi,hi>=10?0:2)}</text><text x="9" y="190">${fmt(lo,hi>=10?0:2)}</text>`:'')}
+function dx(k){$('#dx-real').style.display=k==='real'?'block':'none';if(k==='real'){evGo();return}const c=curves[k];
 $('#ch-r').innerHTML=axes()+poly(c.r,0,1,'var(--acc)')+poly(c.v,0,1,'var(--ok)',true)+'<text x="200" y="20">实线 训练</text><text x="200" y="36">虚线 验证</text>';
 $('#ch-e').innerHTML=axes()+poly(c.e,0,1,'var(--vio)');
 $('#ch-l').innerHTML=axes()+poly(c.l,0,950,'var(--warn)');
 $('#dx-text').innerHTML=c.t}
+/* parse pasted events */
+const ALIAS={critic_rewards_mean:'r','critic/rewards/mean':'r',actor_entropy:'e','actor/entropy':'e',response_length_mean:'l','response_length/mean':'l','val-score/rewards/mean@1':'v',step:'step'};
+function parseEvents(txt){txt=(txt||'').trim();if(!txt)return{err:'没有输入'};let items=[];
+ try{const o=JSON.parse(txt);items=Array.isArray(o)?o:(Array.isArray(o.data)?o.data:[o])}catch(e){
+  for(const line of txt.split(/\n+/)){const s=line.trim();if(!s)continue;try{items.push(JSON.parse(s))}catch(e2){return{err:'无法解析为 JSON 或每行一个 JSON：'+esc(s.slice(0,60))}}}}
+ const pts=[];items.forEach((it,i)=>{const d=(it&&typeof it.data==='object'&&!Array.isArray(it.data)&&it.data)||it;if(!d||typeof d!=='object')return;const p={};
+  for(const k in d){if(ALIAS[k]&&typeof d[k]==='number')p[ALIAS[k]]=d[k]}if(p.r===undefined)return;if(p.step===undefined)p.step=i;pts.push(p)});
+ if(!pts.length)return{err:'没有找到含 critic_rewards_mean 的指标事件'};
+ const by=new Map();pts.forEach(p=>by.set(p.step,p));const out=[...by.values()].sort((a,b)=>a.step-b.step);return{pts:out}}
+function seg5(a,from){const n=a.length,k=Math.max(1,Math.round(n*0.2));const s=from?a.slice(0,k):a.slice(n-k);return s.reduce((x,y)=>x+y,0)/s.length}
+function diagnose(pts){const r=pts.map(p=>p.r),e=pts.filter(p=>p.e!==undefined).map(p=>p.e),l=pts.filter(p=>p.l!==undefined).map(p=>p.l);const msg=[];
+ const r0=seg5(r,true),r1=seg5(r,false);msg.push(`读到 <b>${pts.length}</b> 步（step ${pts[0].step}–${pts[pts.length-1].step}）。奖励：前 20% 均值 <b>${r0.toFixed(3)}</b> → 后 20% 均值 <b>${r1.toFixed(3)}</b>。`);
+ if(e.length>=2){const e0=seg5(e,true),e1=seg5(e,false);msg.push(`熵：${e0.toFixed(3)} → ${e1.toFixed(3)}（${pct(e1/e0,0)}）。`);if(e1<0.3*e0)msg.push('<span class="bad">熵降到起点的 30% 以下：可能塌缩，读几条回答确认是否只剩固定输出。</span>')}
+ if(l.length>=2){const l0=seg5(l,true),l1=seg5(l,false);msg.push(`长度：${l0.toFixed(0)} → ${l1.toFixed(0)} token。`);if(l1>1.5*l0&&r1>r0)msg.push('<span class="bad">长度涨了 50% 以上且奖励在涨：检查是否在刷长度。</span>')}
+ if(r1<0.15)msg.push('<span class="warn">后段奖励低于 0.15：用户指南列出的警示信号，先检查 Lambda 解析和基线。</span>');
+ else if(r1-r0<0.02)msg.push('<span class="warn">奖励几乎没涨：看组内是否有差异（5.1），或学习率是否太小。</span>');
+ else msg.push('<span class="ok">奖励在上升。</span>下一步看开发集上的检查点表现，不要只看训练奖励。');
+ return msg.join(' ')}
+function evGo(){const res=parseEvents($('#ev-in').value);if(res.err){$('#dx-text').innerHTML=`<span class="warn">${res.err}</span>`;['#ch-r','#ch-e','#ch-l'].forEach(s=>$(s).innerHTML=axes());return}
+ const P=res.pts,rng=a=>{const v=a.filter(Number.isFinite);if(!v.length)return[0,1];let lo=Math.min(...v),hi=Math.max(...v);if(hi-lo<1e-9){lo-=0.5;hi+=0.5}const pad=(hi-lo)*0.08;return[lo-pad,hi+pad]};
+ const r=P.map(p=>p.r),v=P.filter(p=>p.v!==undefined).map(p=>p.v),e=P.filter(p=>p.e!==undefined).map(p=>p.e),l=P.filter(p=>p.l!==undefined).map(p=>p.l);
+ const[rl,rh]=rng(r.concat(v));$('#ch-r').innerHTML=axes(rl,rh)+polyArr(r,rl,rh,'var(--acc)')+(v.length?polyArr(v,rl,rh,'var(--ok)',true):'');
+ const[el,eh]=rng(e);$('#ch-e').innerHTML=axes(el,eh)+polyArr(e,el,eh,'var(--vio)');
+ const[ll,lh]=rng(l);$('#ch-l').innerHTML=axes(ll,lh)+polyArr(l,ll,lh,'var(--warn)');
+ $('#dx-text').innerHTML='<span id="ev-diag">'+diagnose(P)+'</span>'}
+function sampleEvents(){const d=[];for(let s=1;s<=20;s++){d.push({object:'fine_tuning.job.event',type:'metrics',level:'info',message:`Step ${s}/20: training metrics`,
+ data:{step:s,total_steps:20,critic_rewards_mean:+(0.45+0.35*(1-Math.exp(-s/6))+0.03*Math.sin(s*1.7)).toFixed(4),actor_entropy:+(0.62-0.15*(1-Math.exp(-s/10))).toFixed(4),
+ response_length_mean:+(520-90*(1-Math.exp(-s/8))).toFixed(2),actor_grad_norm:0.0009,actor_pg_loss:0.1,critic_advantages_mean:0.01}})}return JSON.stringify({object:'list',data:d.reverse(),has_more:false},null,1)}
+$('#ev-sample').onclick=()=>{$('#ev-in').value=sampleEvents();evGo()};$('#ev-go').onclick=evGo;
 seg($$('#dx-btns .btn'),b=>dx(b.dataset.d));dx('ok');
+
+/* ---------- 9. cost estimator ---------- */
+inputs('#ce-in',[
+ {id:'ce-h',l:'训练时长（小时，<b>假设</b>）',v:10},{id:'ce-hp',l:'训练单价 $ / 小时（定价页）',v:80},{id:'ce-m',l:'存储月数',v:1,step:1},{id:'ce-mp',l:'存储 $ / 模型 / 月（定价页）',v:1.95},
+ {id:'ce-n',l:'训练 prompt 数',v:400,step:1},{id:'ce-ep',l:'n_epochs',v:1,step:1,min:1},{id:'ce-b',l:'batch_size',v:4,step:1,min:1},{id:'ce-g',l:'每题回答数 G（<b>未公开</b>，自填）',v:8,step:1,min:1},
+ {id:'ce-ipc',l:'每次 Lambda 调用的回答数（<b>未公开</b>）',v:8,step:1,min:1},{id:'ce-mem',l:'Lambda 内存（GB）',v:0.5},{id:'ce-t0',l:'规则打分耗时 / 次（秒，<b>假设</b>）',v:0.1},{id:'ce-lr',l:'Lambda $ / 百万次请求（定价页示例）',v:0.2},
+ {id:'ce-lg',l:'Lambda $ / GB-秒（定价页示例）',v:0.0000166667},{id:'ce-j',l:'LLM 评审（第 6 节）',v:0,chk:true},{id:'ce-jr',l:'训练中全对比例（<b>假设</b>）',v:0.3,max:1},{id:'ce-jl',l:'单次评审延迟（秒，<b>假设</b>）',v:2},
+ {id:'ce-jw',l:'评审并发数',v:8,step:1,min:1},{id:'ce-jin',l:'评审输入 token / 次（<b>假设</b>）',v:700,step:1},{id:'ce-jout',l:'评审输出 token / 次（<b>假设</b>）',v:250,step:1},{id:'ce-jpi',l:'评审输入 $ / 百万 token（自填）',v:''},
+ {id:'ce-jpo',l:'评审输出 $ / 百万 token（自填）',v:''},{id:'ce-ti',l:'测试题数',v:150,step:1},{id:'ce-tr',l:'每题运行次数',v:3,step:1,min:1},{id:'ce-ein',l:'评测输入 token / 题（<b>假设</b>）',v:400,step:1},
+ {id:'ce-eout',l:'评测输出 token / 题（<b>假设</b>，含推理）',v:300,step:1},{id:'ce-fpi',l:'微调模型输入 $ / 百万（gpt-oss-20b）',v:0.09},{id:'ce-fpo',l:'微调模型输出 $ / 百万（gpt-oss-20b）',v:0.39},{id:'ce-bpi',l:'基座模型输入 $ / 百万（自填）',v:''},
+ {id:'ce-bpo',l:'基座模型输出 $ / 百万（自填）',v:''}],ceRun);
+function costEstimate(x){const r={};r.train=x.h*x.hp;r.store=x.m*x.mp;r.steps=Math.ceil(x.n/x.b)*x.ep;r.roll=x.n*x.ep*x.g;r.calls=Math.ceil(r.roll/x.ipc);
+ r.jPerCall=x.j?x.ipc*x.jr:0;r.callSec=x.t0+(x.j?Math.ceil(r.jPerCall/x.jw-1e-12)*x.jl:0);r.lReq=r.calls*x.lr/1e6;r.gbs=r.calls*x.mem*r.callSec;r.lGbs=r.gbs*x.lg;
+ r.jCalls=x.j?r.roll*x.jr:0;r.jIn=r.jCalls*x.jin;r.jOut=r.jCalls*x.jout;r.jCost=(Number.isFinite(x.jpi)&&Number.isFinite(x.jpo))?(r.jIn*x.jpi+r.jOut*x.jpo)/1e6:NaN;
+ r.jPerLambda=(Number.isFinite(x.jpi)&&Number.isFinite(x.jpo))?r.jPerCall*(x.jin*x.jpi+x.jout*x.jpo)/1e6:NaN;
+ r.eCalls=x.ti*x.tr;r.eIn=r.eCalls*x.ein;r.eOut=r.eCalls*x.eout;r.ft=(r.eIn*x.fpi+r.eOut*x.fpo)/1e6;r.base=(Number.isFinite(x.bpi)&&Number.isFinite(x.bpo))?(r.eIn*x.bpi+r.eOut*x.bpo)/1e6:NaN;
+ r.total=[r.train,r.store,r.lReq,r.lGbs,r.jCost,r.ft,r.base].filter(Number.isFinite).reduce((a,b)=>a+b,0);return r}
+function ceRun(){const ids=['h','hp','m','mp','n','ep','b','g','ipc','mem','t0','lr','lg','jr','jl','jw','jin','jout','jpi','jpo','ti','tr','ein','eout','fpi','fpo','bpi','bpo'];const x={};ids.forEach(k=>x[k]=num('ce-'+k));x.j=$('#ce-j').value==='1';
+ const bad=['h','hp','m','mp','n','ep','b','g','ipc','mem','t0','lr','lg','ti','tr','ein','eout','fpi','fpo'].filter(k=>!(x[k]>=0));if(bad.length||x.b<1||x.ipc<1||x.ep<1){$('#ce-out').innerHTML='<span class="warn">请检查输入：数值必须 ≥ 0，batch_size、epoch、每次调用回答数 ≥ 1。</span>';return}
+ const r=costEstimate(x),money=v=>Number.isFinite(v)?'$'+fmt(v,v<1?4:2):'<span class="mut">单价未填</span>',n0=v=>Math.round(v).toLocaleString('en-US');
+ $('#ce-out').innerHTML=`<table><tr><th>项目</th><th>用量</th><th class="num">费用</th></tr>
+ <tr><td>训练</td><td>${fmt(x.h,1)} 小时 × $${fmt(x.hp)}；按“数据量 ÷ batch_size × epoch”约 ${n0(r.steps)} 步（<b>未核实</b>）</td><td class="num" id="ce-train">${money(r.train)}</td></tr>
+ <tr><td>模型存储</td><td>${fmt(x.m,0)} 月 × $${fmt(x.mp)}</td><td class="num">${money(r.store)}</td></tr>
+ <tr><td>Lambda 请求</td><td>rollout ${n0(r.roll)} 条 ÷ 每次 ${n0(x.ipc)} 条 = <b id="ce-calls">${n0(r.calls)}</b> 次调用</td><td class="num">${money(r.lReq)}</td></tr>
+ <tr><td>Lambda 时长</td><td>每次约 <b id="ce-sec">${fmt(r.callSec,2)}</b> 秒${x.j?`（规则 ${fmt(x.t0,2)} 秒 + ⌈${fmt(r.jPerCall,1)} 次评审 ÷ ${n0(x.jw)} 并发⌉ × ${fmt(x.jl,1)} 秒）`:''} × ${fmt(x.mem,2)} GB = ${n0(r.gbs)} GB-秒</td><td class="num">${money(r.lGbs)}</td></tr>
+ <tr><td>LLM 评审</td><td>${x.j?`<b id="ce-jcalls">${n0(r.jCalls)}</b> 次调用，${n0(r.jIn)} 输入 + ${n0(r.jOut)} 输出 token；每次 Lambda 调用的评审费用 ${Number.isFinite(r.jPerLambda)?'$'+fmt(r.jPerLambda,5):'（单价未填）'}`:'关闭'}</td><td class="num">${x.j?money(r.jCost):'—'}</td></tr>
+ <tr><td>评测：微调模型</td><td>${n0(x.ti)} 题 × ${n0(x.tr)} 次 = ${n0(r.eCalls)} 次；${n0(r.eIn)} 输入 + ${n0(r.eOut)} 输出 token</td><td class="num">${money(r.ft)}</td></tr>
+ <tr><td>评测：基座模型</td><td>同上用量</td><td class="num">${money(r.base)}</td></tr>
+ <tr><th>合计（只含有单价的项）</th><th></th><th class="num" id="ce-total">$${fmt(r.total,2)}</th></tr></table>
+ <span class="mut">训练时长和每题回答数决定了大部分结论，先用 100–200 条小规模试跑实测训练时长，再回来改。Lambda 单价取自 Lambda 定价页的 us-east-1 x86 示例，us-west-2 未单独核对。</span>`}
+ceRun();
+
+/* ---------- 10.2 power ---------- */
+function Phi(x){const t=1/(1+0.3275911*Math.abs(x)/Math.SQRT2),y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x/2);return x>=0?(1+y)/2:(1-y)/2}
+function power(p1,d,n,R,rho){const DE=rho+(1-rho)/R,p2=p1+d,pb=(p1+p2)/2,se0=Math.sqrt(2*pb*(1-pb)*DE/n),se1=Math.sqrt((p1*(1-p1)+p2*(1-p2))*DE/n);
+ return{DE,neff:n/DE,pow:Phi((Math.abs(d)-1.96*se0)/se1),se1}}
+function mde(p1,n,R,rho){let lo=0,hi=1-p1;if(power(p1,hi,n,R,rho).pow<0.8)return NaN;for(let k=0;k<60;k++){const m=(lo+hi)/2;power(p1,m,n,R,rho).pow<0.8?lo=m:hi=m}return hi}
+function nFor(p1,d,R,rho){if(d<=0)return NaN;let lo=2,hi=2;while(power(p1,d,hi,R,rho).pow<0.8){hi*=2;if(hi>1e7)return NaN}while(hi-lo>1){const m=Math.floor((lo+hi)/2);power(p1,d,m,R,rho).pow>=0.8?hi=m:lo=m}return hi}
+inputs('#pw-in',[{id:'pw-p',l:'基线全对率（<b>假设</b>）',v:0.30,step:0.05,max:1},{id:'pw-d',l:'真实提升（绝对值）',v:0.15,step:0.01,max:1},{id:'pw-n',l:'测试题数 n',v:150,step:10,min:10},{id:'pw-r',l:'每题运行次数 R',v:3,step:1,min:1},{id:'pw-rho',l:'题内相关 ρ（<b>假设</b>）',v:0.5,step:0.05,max:1}],pwRun);
+function pwRun(){const p=num('pw-p'),d=num('pw-d'),n=num('pw-n'),R=num('pw-r'),rho=num('pw-rho');
+ if(!(p>0&&p<1&&d>0&&p+d<1&&n>=10&&R>=1&&rho>=0&&rho<=1)){$('#pw-out').innerHTML='<span class="warn">需要 0 &lt; 基线 &lt; 1、提升 &gt; 0、基线 + 提升 &lt; 1、n ≥ 10、R ≥ 1、0 ≤ ρ ≤ 1。</span>';return}
+ const r=power(p,d,n,R,rho),m=mde(p,n,R,rho),need=nFor(p,d,R,rho);
+ $('#pw-out').innerHTML=`<table><tr><th>量</th><th class="num">值</th><th>含义</th></tr>
+ <tr><td>设计效应 DE</td><td class="num">${r.DE.toFixed(3)}</td><td>ρ + (1 − ρ) / R；R 再大也不会低于 ρ</td></tr>
+ <tr><td>有效题数</td><td class="num">${fmt(r.neff,0)}</td><td>n / DE</td></tr>
+ <tr><td>功效</td><td class="num" id="pw-pow">${pct(r.pow)}</td><td>真实提升 ${fmt(100*d,0)} 个百分点时，双侧 α = 0.05 检验判为显著的概率</td></tr>
+ <tr><td>80% 功效的最小可检测提升</td><td class="num" id="pw-mde">${Number.isFinite(m)?fmt(100*m,1)+' 个百分点':'—'}</td><td>小于它的提升大概率看不出来</td></tr>
+ <tr><td>达到 80% 功效需要的题数</td><td class="num" id="pw-need">${Number.isFinite(need)?need.toLocaleString('en-US'):'—'}</td><td>同样 R 和 ρ</td></tr>
+ <tr><td>差值的标准误</td><td class="num">${fmt(100*r.se1,1)} 个百分点</td><td>95% 区间半宽约 1.96 倍，即 ±${fmt(196*r.se1,1)} 个百分点</td></tr></table>`}
+pwRun();
 </script>
 </body></html>
