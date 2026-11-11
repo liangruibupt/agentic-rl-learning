@@ -1,10 +1,20 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>05 多轮训练关键技术</title><link rel="stylesheet" href="assets/style.css"></head>
+<title>05 多轮训练关键技术</title><link rel="stylesheet" href="assets/style.css">
+<style>
+.hm{border-collapse:separate;border-spacing:4px;width:auto}
+.hm td,.hm th{border:none;text-align:center;padding:0}
+.hm td.cell{width:86px;height:46px;border-radius:8px;cursor:pointer;font-size:12px;line-height:1.3;border:2px solid transparent}
+.hm td.cell.flag{border-color:var(--warn)}
+.hm th{font-weight:normal;color:var(--mut);font-size:12px;padding:0 6px}
+.spark{width:100%;height:170px;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+.spark polyline{fill:none;stroke-width:2.2}
+.spark text{font-size:11px;fill:var(--mut)}
+</style></head>
 <body><main>
 <span class="badge lv-mid">中级班 · 05</span>
 <h1>多轮训练的关键技术</h1>
-<p class="lead">目标：理解 Agentic RL 和单轮 RL 在实现上真正不同的地方。这些点不处理好，训练会“看起来在跑，实际在跑偏”。</p>
+<p class="lead">目标：理解 Agentic RL 和单轮 RL 在实现上真正不同的地方。这些点不处理好，训练会“看起来在跑，实际在跑偏”。本课先讲基本概念，再对信用分配、训推一致、上下文成本和指标诊断逐一展开。</p>
 
 <h2>1. 动手：哪些 token 该被训练</h2>
 <div class="card">
@@ -15,25 +25,84 @@
 </div>
 <p class="mut">图例：<span class="tok t-sys">系统</span><span class="tok t-usr">用户</span><span class="tok t-gen">模型生成</span><span class="tok t-tool">工具返回</span></p>
 
-<h2>2. 信用分配</h2>
-<p>一条 20 回合的轨迹最终失败了，问题可能只出在第 3 回合查错了订单。轨迹级奖励会把 20 个回合“一起罚”，好的步骤也被罚了。解决思路：</p>
+<h2>2. 信用分配：好步骤会不会被一起罚</h2>
+<p>一条 20 回合的轨迹最终失败了，问题可能只出在第 3 回合查错了订单。轨迹级奖励会把 20 个回合“一起罚”，好的步骤也被罚了。三种思路：</p>
 <ul>
-<li><b>靠样本量平均：</b>GRPO 默认做法。足够多的轨迹里，好步骤在成功轨迹中出现得更多，统计上会被区分出来。简单但样本效率低。</li>
+<li><b>靠样本量平均：</b>GRPO 默认做法。轨迹够多时，好步骤在成功轨迹里出现得更频繁，统计上会被区分出来。简单，但样本效率低。</li>
 <li><b>回合级奖励：</b>对能评分的中间步骤单独打分。SageMaker AI 多轮 RL 支持通过 UpdateReward 接口上报逐回合奖励。</li>
-<li><b>以回合为转移单位的算法：</b>如 Agent-R1 等工作把每次交互作为 RL 的基本转移，可以做回合级优势估计。</li>
+<li><b>以回合为转移单位的算法：</b>如 Agent-R1 等工作把每次交互作为 RL 的基本转移，做回合级优势估计。</li>
 </ul>
 
-<h2>3. 其他必须处理的技术点</h2>
+<h3>2.1 用数字算一遍</h3>
+<p>同一个任务采样 4 条轨迹，每条 4 个回合。只有 4 个回合都做对，任务才算成功（结果奖励 1，否则 0）。</p>
+<p><b>轨迹级（GRPO 默认）：</b>每条轨迹的优势 <code>A<sub>i</sub> = (r<sub>i</sub> − 组均值) / 组标准差</code>，这条轨迹里的每个回合都拿同一个 A。如果组里只有 1 条成功，那 3 条失败轨迹里<b>做对的回合也全部拿到负优势</b>。</p>
+<p><b>回合级（过程奖励 + 剩余回报）：</b>每个回合有自己的过程奖励 p<sub>t</sub>（做对 +0.25、做错 −0.25，总和有界在 [−1, 1] 内），回合 t 的回报是“从这一回合到结束的所有奖励之和”：</p>
+<pre><code>G<sub>i,t</sub> = Σ<sub>k≥t</sub> p<sub>i,k</sub> + r<sub>i</sub>               # 剩余回报（reward-to-go），这里不打折扣，γ = 1
+A<sub>i,t</sub> = (G<sub>i,t</sub> − 同一回合位置上 4 条轨迹的均值) / 标准差</code></pre>
+<p>这样，一个回合的优势主要取决于它<b>本身和之后</b>发生了什么，前面的错误不再直接算到它头上；做错的回合则会因为自己的负过程奖励被单独区分出来。不过它并不能完全消除误罚，见 2.3。</p>
+
+<h3>2.2 动手：点格子切换某个回合做对还是做错</h3>
+<div class="card">
+<div class="flex"><button class="btn on" id="ca-traj">轨迹级广播</button><button class="btn" id="ca-turn">回合级（过程奖励 + 剩余回报）</button><button class="btn" id="ca-reset">恢复默认</button></div>
+<div style="overflow-x:auto;margin-top:10px"><table class="hm" id="ca-grid"></table></div>
+<div id="ca-out" class="res" style="margin-top:8px"></div>
+</div>
+<div class="tip">默认情况下，轨迹级模式里 3 条失败轨迹中有 <b>7</b> 个做对的回合被判为负优势（黄框）。切到回合级后降到 <b>5</b> 个，并且做错的回合优势明显更低，好坏步骤被拉开了。再试试把轨迹 1 也改成失败：组内没有成功轨迹，轨迹级的优势全为 0，模型学不到任何东西；回合级仍然能靠过程奖励区分好坏步骤。这就是第 04 课“结果主导 + 有界塑形”在多轮场景下的样子。</div>
+
+<h3>2.3 为什么回合级还剩 5 个</h3>
+<p>剩下的 5 个分两类，都来自“在同一回合位置上跨轨迹比较”这个基线：</p>
+<ul>
+<li><b>好步骤后面跟着坏步骤</b>（轨迹 4 回合 1；轨迹 2 回合 1、2）：剩余回报把之后的错误也算了进来。这正是剩余回报的设计意图，一步的价值包括它之后的结果，但它确实会连累这一步本身。</li>
+<li><b>错误已经发生、之后的好步骤</b>（轨迹 2、3 的回合 4）：任务在第 2 或第 3 回合就已经注定失败，回合 4 做得再对也救不回来。可它的比较对象是轨迹 1 的回合 4，那条轨迹带着成功的 +1，所以它显得差。</li>
+</ul>
+<p>问题在于基线只看“第几回合”，不看“当前处境”。要按处境比较，需要<b>依赖状态的基线</b>：</p>
+<ul>
+<li><b>价值网络（critic）：</b>PPO 的做法，估计“从这个状态出发平均能拿多少”。代价是多训一个模型，长轨迹上不好训。</li>
+<li><b>从同一状态分叉采样：</b>在某个中间回合复制环境快照，从这里重新采样几条后续，组内比较的就是同一处境下的不同选择。需要环境支持快照复位（AgentCore Runtime 的会话隔离 + 可复位环境），采样成本也更高。2025–26 年不少工作在探索这种树状或分段分组的做法。</li>
+</ul>
+
+<h3>2.4 回合级奖励的代价</h3>
+<ul>
+<li><b>需要能给中间步骤打分。</b>“查订单前先核对用户身份”能写规则判定，“这一步思考是否合理”通常不能。判不准的回合奖励比不给更糟。</li>
+<li><b>更容易被刷分。</b>模型可能学会多做“容易得分”的步骤。过程奖励的总和必须有界，并且小于结果档位差（第 04 课第 3 节）。</li>
+<li><b>评审成本按回合数增加。</b>每条轨迹 20 个回合，就是 20 次评分。</li>
+</ul>
+<p>实践建议：先用轨迹级加足够大的组跑通；遇到长任务学不动、组内经常全失败时，再给几个关键步骤（确认、核对、写操作）加规则判定的回合奖励。</p>
+
+<h2>3. 训推一致：重新分词为什么会出问题</h2>
+<p>RL 的梯度里有一个关键量，重要性比率 <code>ρ = π<sub>θ</sub>(token | 上下文) / π<sub>old</sub>(token | 上下文)</code>（第 06 课），分母是<b>采样时</b>模型给这个 token 的概率。训练端必须在<b>完全相同的 token 序列</b>上重新计算概率，比率才有意义。在多轮智能体里，有三种常见的偏差：</p>
+<div class="grid g3">
+<div class="card"><b>① 重新分词不一致</b><p>采样时模型逐个生成 <code>get</code>、<code>_order</code>、<code>(</code>、<code>88</code>、<code>)</code>。智能体框架把文本存成消息，下一轮再套模板、重新分词，可能得到 <code>get_</code>、<code>order(</code>、<code>88)</code>。文本一样，token 不一样，训练端算的是一串模型从没生成过的 token 的概率。</p></div>
+<div class="card"><b>② 模板改写了历史</b><p>很多 chat template 会在后续轮次<b>删掉之前回合的思考内容</b>，或者改写工具调用的格式。采样第 5 回合时模型看到的上下文，和训练时拼出来的上下文不一样，ρ 的分母和分子用的不是同一个条件。</p></div>
+<div class="card"><b>③ 数值精度不同</b><p>推理引擎（vLLM、SGLang）和训练引擎用不同的算子和精度，同一个 token 的 logprob 会有小偏差。偏差不大，但长序列上会累积，第 06 课提到的截断重要性采样就是对策之一。</p></div>
+</div>
+<p><b>正确做法：</b>在网关层记录采样时的原始 token id 和 logprob，训练直接用这串 token，不再从文本重建。AgentCore RL Toolkit 的 rollout 网关就是这么做的；多轮场景里，它还会把同一会话的多次模型调用拼成一条带 loss mask 的轨迹。</p>
+<div class="note"><b>怎么检测：</b>在第一个训练步、参数还没更新时，π<sub>θ</sub> 就等于 π<sub>old</sub>，所以 ρ 应该处处等于 1。记录这一步所有生成 token 的 |log ρ| 均值和最大值：只有数值精度带来的微小偏差是正常的；如果明显偏离 0，或者某些位置特别大（常见于工具调用边界、思考块边界），就是 ① 或 ② 在作怪。这一检查成本很低，应该作为每个新智能体接入训练时的第一项检查。</div>
+
+<h2>4. 上下文管理：多轮任务的成本为什么涨得这么快</h2>
+<p>每次调用模型都要重新读一遍全部历史。设系统提示加任务描述有 S 个 token，每个回合新增模型输出 g 个 token、工具返回 o 个 token，跑 T 个回合，总的 prefill token 数大约是：</p>
+<pre><code>prefill 总量 ≈ T·S + (g + o) · T(T − 1) / 2</code></pre>
+<p>第二项随回合数<b>平方</b>增长。AWS 的 Wordle 实验中 prefill 是生成 token 的 3 倍多；对工具返回很长的任务（网页、日志、代码文件），这个比例会大得多。托管多轮 RL 按 prefill、生成、训练三类 token 计费，所以上下文长度直接决定成本。</p>
+
+<h3>4.1 动手：截断旧工具输出能省多少</h3>
+<div class="card">
+<div class="grid g4" id="cx-in"></div>
+<div class="grid g2" style="margin-top:10px">
+<div><div class="mut" style="font-size:13px">每次模型调用的上下文长度（实线：不截断；虚线：截断）</div><svg class="spark" id="cx-chart" viewBox="0 0 300 170" preserveAspectRatio="none"></svg></div>
+<div id="cx-out" class="res"></div>
+</div>
+</div>
+<div class="tip"><b>截断也要训推一致：</b>训练时怎么截断，上线时就必须怎么截断，否则模型在训练里学会依赖“摘要后的旧工具输出”，上线却看到完整内容，行为会变。截断规则应该写在智能体代码里，训练和部署共用同一份（第 10 课“训练的智能体就是部署的智能体”）。推理引擎的前缀缓存能减少重复计算，但按 token 计费的托管服务通常仍按完整 prefill 计费，以定价页为准。</div>
+
+<h2>5. 其他必须处理的技术点</h2>
 <div class="grid g2">
-<div class="card"><b>训推一致（token 进、token 出）</b><p>智能体框架通常把消息列表交给模型 API，每轮重新套 chat template、重新分词。重新分词的结果可能和模型当初生成的 token 不一致，算出的 logprob 对不上，训练会悄悄跑偏。正确做法是在网关层记录<b>采样时的原始 token id 和 logprob</b>，训练直接使用。AWS 开源的 AgentCore RL Toolkit 的 rollout gateway 就是做这件事的。</p></div>
-<div class="card"><b>上下文管理</b><p>多轮任务每轮都要重读历史，上下文快速膨胀。AWS 的 Wordle 实验中 prefill token 是生成 token 的 3 倍多，训练 token 成本占了总成本的大头。常见手段：截断旧的工具输出、摘要记忆、限制最大回合数。</p></div>
 <div class="card"><b>冷启动</b><p>如果基础模型连工具调用格式都做不对，奖励全是 0，GRPO 没有梯度。Bedrock 文档建议：基线接近 0% 先做 SFT；高于 95% 则 RL 收益有限。常用做法是让前沿模型（例如 Bedrock 上的 Claude）跑出成功轨迹，用来做蒸馏 SFT，再上 RL。</p></div>
 <div class="card"><b>格式漂移</b><p>学习率过高时，模型可能把工具调用写成纯文本，所有 rollout 拿同样的最低分，梯度消失。这是 SageMaker 博客记录的真实踩坑。对策：降低学习率；从纯文本中恢复工具调用并给小幅格式惩罚；监控“有效工具调用率”。</p></div>
 <div class="card"><b>环境隔离与可复位</b><p>每条 rollout 要有独立的文件系统和状态，且能恢复到初始快照。上千条并发轨迹共享一个数据库，会互相污染。AgentCore Runtime 为每个会话分配独立 microVM，会话结束即销毁，适合承担这一层。</p></div>
 <div class="card"><b>评测设置要和服务一致</b><p>训练任务的验证通常用 temperature 0，但上线可能用 1.0。AWS 的 Wordle 实验中，训练曲线显示最终 37%，按服务设置评测是 84%。永远按你实际上线的解码参数评测。</p></div>
 </div>
 
-<h2>4. 训练时要盯的指标</h2>
+<h2>6. 训练时要盯的指标</h2>
 <table>
 <tr><th>指标</th><th>健康表现</th><th>异常信号</th></tr>
 <tr><td>训练奖励均值</td><td>稳步上升后趋于平台</td><td>剧烈震荡或突然跌落</td></tr>
@@ -44,13 +113,32 @@
 <tr><td>平均轨迹长度</td><td>稳定或下降</td><td>持续变长：可能在刷步数奖励</td></tr>
 </table>
 
+<h3>6.1 诊断顺序：出了问题先查哪里</h3>
+<p>指标异常时，按“数据是怎么来的”从上游往下游查：先确认 rollout 本身是健康的，再确认奖励算对了，然后才怀疑算法和超参数。顺序反过来，常常调了一周学习率，最后发现是奖励函数解析失败。</p>
+<div class="card">
+<div class="flex" id="dg-btns"><span class="mut">症状：</span><button class="btn on" data-s="flat">奖励一直不动</button><button class="btn" data-s="drop">奖励突然跌到底</button><button class="btn" data-s="gap">训练涨、验证不涨</button><button class="btn" data-s="long">轨迹越来越长</button><button class="btn" data-s="ent">熵快速下降</button></div>
+<ol id="dg-steps" style="margin-top:10px"></ol>
+</div>
+
+<h2>7. 小测验</h2>
 <div class="quiz" data-answer="0"><b>如果不屏蔽工具返回的 token，会发生什么？</b><br>
 <button class="btn opt">A. 模型被训练去“预测工具会返回什么”，可能学会编造工具结果，梯度也被无关 token 稀释</button>
 <button class="btn opt">B. 没有影响，因为工具返回是固定的</button>
 <div class="qe">正确答案 A。工具返回是环境产生的，不是模型的动作，不应该进入策略梯度。</div></div>
+<div class="quiz" data-answer="1"><b>第一个训练步、参数还没更新时，生成 token 的 |log ρ| 均值明显大于 0，最可能的原因是？</b><br>
+<button class="btn opt">A. 学习率太高</button>
+<button class="btn opt">B. 训练端用的 token 序列或上下文与采样时不一致（重新分词、模板改写历史）</button>
+<button class="btn opt">C. 奖励函数写错了</button>
+<div class="qe">正确答案 B。参数没更新时 π<sub>θ</sub> = π<sub>old</sub>，ρ 应该等于 1。偏离只能来自“算的不是同一串 token、同一个上下文”，或者数值精度。学习率和奖励都还没起作用。</div></div>
+<div class="quiz" data-answer="2"><b>一个 20 回合的任务，组内 8 条轨迹经常全部失败。最该先做什么？</b><br>
+<button class="btn opt">A. 把学习率调大</button>
+<button class="btn opt">B. 去掉 loss mask</button>
+<button class="btn opt">C. 给几个可规则判定的关键步骤加有界的回合级奖励，或先做 SFT 冷启动、拆成更短的子任务</button>
+<div class="qe">正确答案 C。全部失败时轨迹级优势全为 0，没有梯度。回合级过程奖励能在失败轨迹之间产生差异；SFT 和课程式拆分能把成功率拉进可学习区间。</div></div>
 </main>
 <script src="assets/common.js"></script>
 <script>
+/* 1. loss mask */
 const traj=[['sys','系统：你是客服，遵守退换货政策',0],['usr','用户：订单 88 换 42 码',0],['gen','思考：先查订单',1],['gen','调用 get_order(88)',1],['tool','返回：已发货 12 天，41 码',2],
 ['gen','思考：12 天 < 30 天，可换',3],['gen','回复：确认换成 42 码吗？',3],['usr','用户：确认',4],['gen','调用 exchange_items(88, 42)',5],['tool','返回：成功',6],['gen','回复：已为您换货',7]];
 let maskOn=true,turn=false;const tr={1:0.1,3:0.3,5:0.5,7:0.1};
@@ -60,5 +148,44 @@ s.textContent=txt+(on?(turn?` [A=${(tr[t]??0.1).toFixed(1)}]`:' [A=+1.2]'):'');b
 $('#tokexp').innerHTML=(maskOn?'<span class="ok">只有模型生成的 token 参与损失。</span>':'<span class="bad">工具返回和用户消息也计入了损失：模型在学“预测数据库会返回什么”，可能编造工具结果，梯度也被无关 token 稀释。</span>')+'<br>'+
 (turn?'回合级：每回合拿到各自的奖励或优势（例如“正确查询订单”“确认后才执行”分别打分）。长任务中信用分配更精确，但需要能对中间步骤评分。':'轨迹级：整条轨迹的优势 A=+1.2 广播给所有生成 token。实现最简单，是 GRPO 的默认做法；缺点是好坏步骤同奖同罚，需要更多样本把噪声平均掉。')}
 seg([$('#mk-on'),$('#mk-off')],b=>{maskOn=b.id==='mk-on';draw()});seg([$('#cr-traj'),$('#cr-turn')],b=>{turn=b.id==='cr-turn';draw()});draw();
+
+/* 2.2 credit assignment heatmap */
+const CA0=[[1,1,1,1],[1,1,0,1],[0,1,1,1],[1,0,0,0]];let CA=CA0.map(r=>[...r]),caMode='traj';
+const mean=a=>a.reduce((x,y)=>x+y,0)/a.length,std=a=>{const m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)**2)))};
+function caAdv(){const r=CA.map(row=>row.every(Boolean)?1:0);
+if(caMode==='traj'){const m=mean(r),s=std(r);return {r,A:CA.map((row,i)=>row.map(()=>s<1e-9?0:(r[i]-m)/s))}}
+const G=CA.map((row,i)=>row.map((_,t)=>row.slice(t).reduce((acc,g)=>acc+(g?0.25:-0.25),0)+r[i]));
+const A=G.map(row=>row.map(()=>0));for(let t=0;t<4;t++){const col=G.map(row=>row[t]),m=mean(col),s=std(col);G.forEach((row,i)=>A[i][t]=s<1e-9?0:(row[t]-m)/s)}return {r,A}}
+function caDraw(){const {r,A}=caAdv();let h='<tr><th></th>'+[1,2,3,4].map(t=>`<th>回合 ${t}</th>`).join('')+'<th>结果</th></tr>';let pen=0,goodNeg=[];
+CA.forEach((row,i)=>{h+=`<tr><th>轨迹 ${i+1}</th>`;row.forEach((g,t)=>{const a=A[i][t];const flag=g&&a<-1e-6;if(flag)pen++;
+const col=a>=0?`color-mix(in srgb,var(--ok) ${Math.min(80,Math.abs(a)*40)}%,var(--panel2))`:`color-mix(in srgb,var(--bad) ${Math.min(80,Math.abs(a)*40)}%,var(--panel2))`;
+h+=`<td class="cell${flag?' flag':''}" data-i="${i}" data-t="${t}" style="background:${col}">${g?'做对':'做错'}<br>A=${a.toFixed(2)}</td>`});h+=`<th>${r[i]?'<span class="ok">成功</span>':'<span class="bad">失败</span>'}</th></tr>`});
+$('#ca-grid').innerHTML=h;$$('#ca-grid td.cell').forEach(c=>c.onclick=()=>{const i=+c.dataset.i,t=+c.dataset.t;CA[i][t]=1-CA[i][t];caDraw()});
+const allZero=A.flat().every(a=>Math.abs(a)<1e-6);
+$('#ca-out').innerHTML=(allZero?'<span class="bad">所有优势都是 0：这一组没有任何学习信号。</span><br>':'')+`做对但被判为负优势的回合（黄框）：<b class="${pen?'bad':'ok'}">${pen}</b> 个。`+(caMode==='traj'?' 轨迹级：同一条轨迹的所有回合共享一个优势。':' 回合级：每个回合看自己和之后的奖励，在同一回合位置上跨轨迹比较。')}
+seg([$('#ca-traj'),$('#ca-turn')],b=>{caMode=b.id==='ca-traj'?'traj':'turn';caDraw()});$('#ca-reset').onclick=()=>{CA=CA0.map(r=>[...r]);caDraw()};caDraw();
+
+/* 4.1 context cost */
+const CX=[['S','系统提示 + 任务 S',1500],['T','回合数 T',12],['g','每回合模型输出 g',150],['o','每回合工具返回 o',600],['K','保留最近几次完整工具返回 K',2],['m','更早的工具返回截断为 m',50]];
+$('#cx-in').innerHTML=CX.map(([k,l,v])=>`<div><label class="sl">${l}</label><input type="number" min="0" step="1" id="cx-${k}" value="${v}"></div>`).join('');
+function cxCalc(trunc){const g=k=>Math.max(0,+$('#cx-'+k).value||0);const S=g('S'),T=Math.max(1,Math.round(g('T'))),G=g('g'),O=g('o'),K=Math.round(g('K')),M=g('m');
+const per=[];for(let t=1;t<=T;t++){let c=S;for(let j=1;j<t;j++){c+=G+(trunc&&j<t-K?Math.min(M,O):O)}per.push(c)}return per}
+function cxDraw(){const full=cxCalc(false),cut=cxCalc(true);const sum=a=>a.reduce((x,y)=>x+y,0);const F=sum(full),C=sum(cut),T=full.length;
+const mx=Math.max(...full),pts=a=>a.map((v,i)=>`${(T===1?150:i/(T-1)*290+5).toFixed(1)},${(165-v/mx*150).toFixed(1)}`).join(' ');
+$('#cx-chart').innerHTML=`<polyline points="${pts(full)}" style="stroke:var(--bad)"/><polyline points="${pts(cut)}" style="stroke:var(--ok)" stroke-dasharray="5,4"/><text x="8" y="14">最大 ${mx.toLocaleString()} tokens</text>`;
+const S=+$('#cx-S').value||0,G=+$('#cx-g').value||0,O=+$('#cx-o').value||0;const formula=T*S+(G+O)*T*(T-1)/2;
+$('#cx-out').innerHTML=`<table><tr><th></th><th>不截断</th><th>截断</th></tr><tr><td>单条轨迹 prefill 总量</td><td>${F.toLocaleString()}</td><td>${C.toLocaleString()}</td></tr><tr><td>最后一次调用的上下文</td><td>${full[T-1].toLocaleString()}</td><td>${cut[T-1].toLocaleString()}</td></tr></table>`+
+`节省 prefill <span class="kpi">${F?((1-C/F)*100).toFixed(0):0}%</span><br><span class="mut">公式估算（不截断）：T·S + (g+o)·T(T−1)/2 = ${formula.toLocaleString()}。按第 09 课的例子，每步 1,024 条轨迹、100 步，就是 ${(F*102400/1e6).toFixed(0)}M vs ${(C*102400/1e6).toFixed(0)}M prefill tokens。</span>`}
+$$('#cx-in input').forEach(i=>i.oninput=cxDraw);cxDraw();
+
+/* 6.1 diagnosis */
+const DG={
+flat:['<b>rollout 是否正常结束？</b>看完成率、超时率、报错率。大量 rollout 报错或超时，奖励就只是兜底分。','<b>有效工具调用率是多少？</b>模型如果一直调不对工具，奖励全是最低档。','<b>奖励函数是否真的解析到了答案？</b>抽 20 条轨迹，手工算一遍奖励，和日志对比。最常见的原因是解析 bug。','<b>组内方差为 0 的比例有多高？</b>全对或全错的组没有梯度。太难先做 SFT 或拆任务，太简单就换更难的任务。','<b>最后才看算法：</b>学习率是否过小、batch 是否过小。'],
+drop:['<b>环境或工具是否出故障？</b>下游服务限流、沙箱镜像变化、凭证过期，都会让一批 rollout 同时失败（SageMaker 博客中，并发下凭证刷新失败就导致过 403）。','<b>有效工具调用率是否同时下跌？</b>是的话，大概率是格式漂移：模型开始把工具调用写成纯文本。','<b>熵和梯度范数有没有尖峰？</b>有就是训练不稳定，回到上一个检查点并降低学习率。','<b>奖励函数或评审是否被改过？</b>训练中途重新部署智能体或改奖励，会让前后不可比，甚至让任务失败。'],
+gap:['<b>验证是否按服务设置评测？</b>temperature、推理强度不同，结论可能完全相反（Wordle：37% vs 84%）。','<b>训练奖励涨在哪一项？</b>看分项奖励：如果只是塑形项或评审分在涨，模型在讨好奖励，不是在把事办成。','<b>读高分轨迹。</b>随机抽 20–30 条训练奖励最高的轨迹，看它们是否真的好。','<b>训练集和验证集分布是否不同？</b>任务模板、用户类型、政策组合是否覆盖。','<b>是否过拟合：</b>减少 epoch，用验证集最好的检查点。'],
+long:['<b>奖励是否随步数累加？</b>未截断的逐步奖励会鼓励拖延（第 04 课 Wordle 案例）。','<b>评审是否偏好长回复？</b>用加长回复的偏差探针测一次（第 04 课 4.4）。','<b>是否卡在循环里？</b>统计重复调用同一只读工具的比例。','<b>最大回合数和 token 上限是否合理？</b>太大会让失败轨迹拖得很长，抬高成本。'],
+ent:['<b>学习率是否过高？</b>熵塌缩最常见的原因。','<b>奖励是否过于“一刀切”？</b>只有 0/1 时，模型很快锁定少数几种模式。','<b>clip 上限是否太紧？</b>低概率的探索性 token 很快被截断，可以试 DAPO 的 clip-higher（第 06 课）。','<b>任务是否太单一？</b>增加任务多样性比调熵正则更有效。']};
+function dg(k){$('#dg-steps').innerHTML=DG[k].map(s=>`<li>${s}</li>`).join('')}
+seg($$('#dg-btns .btn'),b=>dg(b.dataset.s));dg('flat');
 </script>
 </body></html>
