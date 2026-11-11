@@ -236,7 +236,7 @@ const PL=[
 {n:'InstructGPT',y:2022,use:['sft','rm','rl'],steps:['SFT（标注员写的示范）','训练奖励模型（输出排序数据）','PPO'],key:'RLHF 经典三步。1.3B 的 InstructGPT 在人工评估中优于 175B 的 GPT-3。'},
 {n:'Llama 3',y:2024,use:['sft','rm','dpo','rs'],steps:['先训练奖励模型','每轮：SFT（含拒绝采样数据）→ DPO','共六轮，每轮用最新模型生成新数据'],key:'明确选择 SFT + 拒绝采样 + DPO，而不是 PPO。理由是 PPO 不稳定、难扩展，DPO 计算更少，在 IFEval 等指令遵循评测上更好。<b>没有在线 RL。</b>'},
 {n:'Tulu 3',y:2024,use:['sft','dpo','rl'],steps:['数据整理','SFT','DPO（长度归一化，含 on-policy 偏好数据）','RLVR（PPO + 验证器）'],key:'首次提出 RLVR 这个名称：奖励模型换成验证函数，答对给固定分（α=10），否则 0。用于 GSM8K、MATH、IFEval，约 3 万条 prompt。'},
-{n:'DeepSeek-R1-Zero',y:2025,use:['rl'],steps:['基座','直接大规模 RL（GRPO，规则奖励），不做 SFT'],key:'AIME 2024 pass@1 从 15.6% 升到 71.0%；但可读性差、中英混杂。'},
+{n:'DeepSeek-R1-Zero',y:2025,use:['rl'],steps:['基座','直接大规模 RL（GRPO，规则奖励），不做 SFT'],key:'AIME 2024 pass@1 从 15.6% 升到 71.0%（论文 v1；Nature 版 / arXiv v2 报告为 77.9%）；但可读性差、中英混杂。'},
 {n:'DeepSeek-R1',y:2025,use:['sft','rl','rs','rl2'],steps:['冷启动 SFT（数千条长 CoT）','推理 RL（准确率 + 语言一致性奖励）','拒绝采样生成约 60 万推理样本 + 约 20 万非推理样本，从基座重新 SFT','全场景 RL（推理用规则奖励，通用用奖励模型）'],key:'两段 SFT + 两段 RL。另用这 80 万样本只做 SFT 蒸馏出 Qwen / Llama 小模型，效果优于在 32B 基座上直接跑大规模 RL。'},
 {n:'Qwen3',y:2025,use:['sft','rl','rs','rl2'],steps:['Long-CoT 冷启动 SFT','Reasoning RL（GRPO，3,995 个 query-验证器对）','思考模式融合（SFT，思考数据来自对上一步的拒绝采样）','General RL（20 多类任务的奖励体系，含多轮工具调用）'],key:'小模型不走四阶段，而用“强到弱蒸馏”。报告的对比实验中，在同一个小模型上 on-policy 蒸馏比直接 RL 分数更高，GPU 时间约 1,800 vs 17,920 小时。<span class="mut">这组对比用的是哪个尺寸的模型，本课没有核实。</span>'}];
 $('#pl-btns').innerHTML=PL.map((p,i)=>`<button class="btn${i?'':' on'}" data-i="${i}">${p.n}</button>`).join('');

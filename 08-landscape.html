@@ -159,7 +159,7 @@ table.mx tr.dim{opacity:.35}
 </ul>
 <h3>实验室公开结果</h3>
 <ul>
-<li>DeepSeek-AI. <a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a>（R1-Zero AIME 2024 15.6% → 71.0%）· <a href="https://arxiv.org/abs/2402.03300">DeepSeekMath（GRPO）</a> · <a href="https://arxiv.org/abs/2512.02556">DeepSeek-V3.2（智能体任务合成流水线）</a></li>
+<li>DeepSeek-AI. <a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a>（R1-Zero AIME 2024 15.6% → 71.0%，v2 / Nature 版为 77.9%）· <a href="https://arxiv.org/abs/2402.03300">DeepSeekMath（GRPO）</a> · <a href="https://arxiv.org/abs/2512.02556">DeepSeek-V3.2（智能体任务合成流水线）</a></li>
 <li>Moonshot AI. <a href="https://arxiv.org/abs/2507.20534">Kimi K2: Open Agentic Intelligence</a> · <a href="https://moonshotai.github.io/Kimi-Researcher/">Kimi-Researcher</a>（2025-06-20）</li>
 <li>Qwen. <a href="https://qwenlm.github.io/blog/qwen3-coder/">Qwen3-Coder 博客</a>（2 万个并行环境的 Agent RL）· <a href="https://arxiv.org/abs/2507.18071">GSPO</a></li>
 <li>ByteDance Seed. <a href="https://arxiv.org/abs/2503.14476">DAPO</a> · MiniMax. <a href="https://arxiv.org/abs/2506.13585">MiniMax-M1（CISPO）</a></li>
@@ -184,7 +184,7 @@ const players=[
 {c:'lab',n:'OpenAI',t:['o 系列','Deep Research','Codex','微调平台关停中'],d:'o 系列推理模型用大规模 RL 训练；官方介绍 Deep Research 在浏览和推理任务上做了端到端 RL。2025-10 DevDay 宣布 Agent RFT。自助微调平台（含 RFT）正在关停：o4-mini 已于 2026-10-23 下线，现有客户 2027-01-06 起不能再建任务；Agent Builder 和 Evals 计划 2026-11-30 关停。'},
 {c:'lab',n:'Anthropic',t:['Claude','智能体编码'],d:'Claude 系列在智能体编码和长程工具使用上处于前列，RL 训练细节披露有限。在 Amazon Bedrock 上可作为参照上限、教师模型（合成 SFT 轨迹）和 LLM 评审。'},
 {c:'lab',n:'Google DeepMind',t:['Gemini','Deep Research'],d:'Gemini 思考模型和 Deep Research 类智能体产品；RL 训练方法的公开细节有限。'},
-{c:'lab',n:'DeepSeek',t:['GRPO','R1','V3.2'],d:'DeepSeekMath 提出 GRPO；R1-Zero 只用规则奖励的 RL，把 AIME 2024 pass@1 从 15.6% 提到 71.0%。DeepSeek-V3.2 技术报告描述了大规模智能体任务合成流水线，用于工具使用场景的后训练。'},
+{c:'lab',n:'DeepSeek',t:['GRPO','R1','V3.2'],d:'DeepSeekMath 提出 GRPO；R1-Zero 只用规则奖励的 RL，把 AIME 2024 pass@1 从 15.6% 提到 71.0%（论文 v1；Nature 版 / arXiv v2 为 77.9%）。DeepSeek-V3.2 技术报告描述了大规模智能体任务合成流水线，用于工具使用场景的后训练。'},
 {c:'lab',n:'Moonshot（Kimi）',t:['K2','Kimi-Researcher'],d:'Kimi K2（1T 总参数 / 32B 激活的 MoE）的后训练以大规模智能体数据合成和联合 RL 为主，在真实和合成环境中交互。Kimi-Researcher 用端到端 RL（主要是 REINFORCE）训练研究型智能体，HLE 从 8.6% 到 26.9%，采用全异步 rollout 和回合级部分 rollout。'},
 {c:'lab',n:'阿里 Qwen',t:['GSPO','Qwen3-Coder'],d:'GSPO 用序列级重要性比率和裁剪，论文称它让 MoE 的 RL 训练更稳定。Qwen3-Coder 在后训练中做长程 Agent RL，在阿里云上搭建了可并行运行 2 万个独立环境的系统。Qwen 也是 AWS 托管 RL 服务和开源社区最常用的底座之一。'},
 {c:'lab',n:'智谱 / MiniMax / 字节 Seed',t:['slime','CISPO','DAPO','verl'],d:'slime 是智谱 GLM-5.1 到 GLM-5.3 系列背后的 RL 框架（README）。MiniMax-M1 在真实软件工程沙箱等环境上做大规模 RL，提出 CISPO。字节 Seed 的 DAPO 基于 verl 开源；verl 已于 2026-01 迁到 verl-project 组织。'},
@@ -235,7 +235,7 @@ $$('#fw-req input').forEach(i=>i.onchange=drawFw);drawFw();
 
 /* 4. published results */
 const rs=[
-{c:'lab',who:'DeepSeek（R1-Zero）',m:'DeepSeek-V3-Base',b:'AIME 2024 pass@1',v:'15.6% → 71.0%（多数投票 86.7%）',how:'纯 RL（GRPO），规则奖励：答案正确 + 格式',note:'数学推理，不是智能体任务；每题采样 16 次求平均。AIME 2024 题目公开。',src:'https://arxiv.org/abs/2501.12948',sn:'arXiv 2501.12948（2025-01）'},
+{c:'lab',who:'DeepSeek（R1-Zero）',m:'DeepSeek-V3-Base',b:'AIME 2024 pass@1',v:'15.6% → 71.0%（论文 v1，多数投票 86.7%）；Nature 版 / arXiv v2 为 77.9%（自洽解码 86.7%）',how:'纯 RL（GRPO），规则奖励：答案正确 + 格式',note:'数学推理，不是智能体任务；每题采样 16 次求平均。AIME 2024 题目公开。',src:'https://arxiv.org/abs/2501.12948',sn:'arXiv 2501.12948（2025-01）'},
 {c:'lab',who:'Moonshot（Kimi-Researcher）',m:'内部 Kimi k 系列',b:'Humanity\'s Last Exam pass@1',v:'8.6% → 26.9%（pass@4 为 40.17%）',how:'端到端智能体 RL，主要用 REINFORCE；结果奖励 + 格式惩罚 + γ 衰减',note:'用 o3-mini 判分；来源说明搜索工具波动会影响结果，并给出评测日期；模型未开源，无法复现。',src:'https://moonshotai.github.io/Kimi-Researcher/',sn:'官方博客（2025-06-20）'},
 {c:'lab',who:'Moonshot（Kimi K2）',m:'Kimi K2（1T / 32B 激活）',b:'τ²-Bench；SWE-bench Verified',v:'66.1；65.8（最终分）',how:'大规模智能体数据合成 + 联合 RL',note:'只报告最终分，没有单独拆出 RL 带来的增益。SWE-bench Verified 见第 4.1 节。',src:'https://arxiv.org/abs/2507.20534',sn:'arXiv 2507.20534（2025-07）'},
 {c:'lab',who:'阿里 Qwen（Qwen3-Coder）',m:'Qwen3-Coder-480B-A35B',b:'SWE-bench Verified',v:'博客称在开源模型中领先（不用测试时扩展）；具体数值在图中，本页不转录',how:'长程 Agent RL，2 万个并行环境',note:'没有给出 RL 前后对比。SWE-bench Verified 见第 4.1 节。',src:'https://qwenlm.github.io/blog/qwen3-coder/',sn:'官方博客（2025-07）'},
