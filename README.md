@@ -12,6 +12,7 @@
 |---|---|---|---|
 | — | [index.html](index.html) | 学习路线图，SFT / 单轮 RL / Agentic RL 对比 | |
 | 基础班 | [01 什么是 Agentic RL](01-basics-what-is-agentic-rl.html) | 把 LLM 看成策略；单轮与多轮的本质区别；为什么它现在变得重要 | 单轮/多轮切换、小测验 |
+| 基础班 | [01b RL 和后训练的关系](01b-basics-rl-and-post-training.html) | 后训练是阶段、RL 是方法；SFT / DPO / RLHF / RLVR / Agentic RL 的数据来源与在线性；InstructGPT、Llama 3、Tulu 3、DeepSeek-R1、Qwen3 的后训练流水线；RL 的收益、争论与风险 | 可点击阶段图、方法切换、在线/同策略 2×2、流水线时间线、小测验 |
 | 基础班 | [02 一次训练迭代](02-basics-training-loop.html) | 从取任务到权重同步的 8 个步骤；时间花在哪里 | 逐步动画 |
 | 基础班 | [03 GRPO 入门](03-basics-grpo.html) | 组内相对优势；为什么全对或全错的组没有梯度 | 奖励滑块、GRPO / Dr.GRPO 切换 |
 | 中级班 | [04 奖励设计](04-intermediate-reward-design.html) | 奖励来源、结果主导 + 有界塑形的推导、LLM 评审奖励设计与校准、防作弊清单（可运行示例见 [labs/llm-judge](labs/llm-judge)） | 复现 Wordle 奖励倒挂案例、评审分跨档演示 |
