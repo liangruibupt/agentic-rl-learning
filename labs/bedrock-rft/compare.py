@@ -1,7 +1,7 @@
 """Compare base vs fine-tuned results saved by evaluate.py --save, with paired bootstrap CIs.
 
 Usage:
-  python compare.py base.jsonl ft.jsonl [--boot 10000] [--seed 0]
+  python compare.py base.jsonl ft.jsonl [--boot 10000] [--seed 0] [--slice ood]
 Each input line is one (task_id, run) record written by evaluate.py.
 
 Method (same as lesson 10 section 8.3):
@@ -101,8 +101,11 @@ def main():
     ap.add_argument("ft")
     ap.add_argument("--boot", type=int, default=10000)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--slice", help="only items of one test slice, e.g. new_phrasing or ood")
     args = ap.parse_args()
     base, ft = load_records(args.base), load_records(args.ft)
+    if args.slice:
+        base, ft = ([r for r in recs if r.get("slice") == args.slice] for recs in (base, ft))
     res = paired_bootstrap(base, ft, boot=args.boot, seed=args.seed)
     print(f"{'metric':<16}{'base':>9}{'ft':>9}{'diff':>9}   95% CI (paired bootstrap, {args.boot} draws)")
     for m, (b, f, d, lo, hi) in res.items():

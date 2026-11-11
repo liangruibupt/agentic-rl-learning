@@ -38,6 +38,20 @@ def test_case_and_number_formats():
     assert s(dict(REF, order_id="a12345", amount="368.0", category="Refund")) == 1.0
 
 
+def test_order_id_separators_match_prompt_rule():
+    # The system prompt asks for "A12345"; separator variants copied from the ticket still match.
+    for oid in ("A-12345", "#A12345", "a 12345", " a12345 "):
+        assert s(dict(REF, order_id=oid)) == 1.0, oid
+    assert s(dict(REF, order_id="A-12346")) < 1.0
+    assert s(dict(REF, order_id="AB12345")) < 1.0
+
+
+def test_amount_written_as_float_or_string():
+    ref = dict(REF, amount=1299)
+    assert s(dict(ref, amount=1299.0), ref) == 1.0 and s(dict(ref, amount="1299"), ref) == 1.0
+    assert s(dict(ref, amount="一千二百九十九"), ref) < 1.0  # the prompt asks for a number
+
+
 def test_reasoning_then_json():
     assert s("<think>先看金额</think>答案：" + json.dumps(REF)) == 1.0
 

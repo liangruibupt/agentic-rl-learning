@@ -66,20 +66,63 @@ def test_difficulty_tags_follow_priority_rules():
     assert cd.difficulty_tags(row("退款 1299 元，我要投诉", amt=1299, pri="high"))[:1] == ["rule1_keyword"]
     assert "both_rule1_triggers" in cd.difficulty_tags(row("退款 1299 元，我要投诉", amt=1299, pri="high"))
     assert cd.difficulty_tags(row("退款 1000 元", amt=1000, pri="medium")) == ["rule2_amount", "boundary_amount"]
-    assert cd.difficulty_tags(row("等了 8 天", cat="shipping", pri="medium")) == ["rule2_shipping_days"]
+    assert cd.difficulty_tags(row("等了 10 天", cat="shipping", pri="medium")) == ["rule2_shipping_days"]
+    assert cd.difficulty_tags(row("等了 8 天", cat="shipping", pri="medium")) == ["rule2_shipping_days", "boundary_days"]
     assert cd.difficulty_tags(row("等了 5 天", cat="shipping")) == ["rule3_default"]
     assert cd.level(["rule3_default"]) == "easy" and cd.level(["rule2_amount", "boundary_amount"]) == "hard"
+
+
+def test_order_id_check_ignores_case_and_separators():
+    assert cd.validate_row(row("订单a-10234 退款", oid="A10234")) == []
+    assert cd.validate_row(row("order #A10234 refund", oid="A10234")) == []
+    assert any("order_id" in e for e in cd.validate_row(row("订单A10235 退款", oid="A10234")))
+
+
+def test_wait_days_field_and_english_keywords():
+    r = row("包裹停了半个月", cat="shipping", pri="medium")
+    r["wait_days"] = 15
+    assert cd.difficulty_tags(r) == ["rule2_shipping_days"]
+    r["wait_days"] = 7
+    assert cd.difficulty_tags(r) == ["rule3_default", "boundary_days"]
+    assert cd.difficulty_tags(row("I will file a Complaint.", pri="high"))[0] == "rule1_keyword"
+
+
+def tagged(text, tid, slice_, formats="", **kw):
+    r = row(text, **kw)
+    r.update(template_id=tid, slice=slice_, formats=formats)
+    return r
+
+
+def test_template_id_overlap_and_ood_summary():
+    cats = sorted(cd.CATEGORIES)
+    train = [tagged(f"订单A{i} 退款", f"refund/train{i % 3}", "train", "oid:plain", oid=f"A{i}") for i in range(100)]
+    test = [tagged(f"订单B{i} 退款", "refund/train0", "new_phrasing", "oid:plain", oid=f"B{i}") for i in range(5)]
+    test += [tagged(f"order c-{i} refund", f"{c}/en0", "ood", "lang:en,oid:hyphen", cat=c, oid=f"C{i}")
+             for i, c in enumerate(cats * 2)]
+    test += [tagged(f"订单D{i} 退款", "refund/test0", "ood", "oid:plain", oid=f"D{i}") for i in range(2)]
+    st = cd.check({"train": train, "test": test})
+    assert st["stats"]["test"]["template_id_overlap_with_train"] == 5 / 17
+    ood = st["stats"]["test"]["ood"]
+    assert ood["rows"] == 12 and ood["unseen_format_rate"] == 10 / 12
+    assert ood["unseen_formats"] == {"lang:en": 10, "oid:hyphen": 10}
+    assert ood["class_counts"]["refund"] == 4 and ood["template_id_overlap_with_train"] == 0
+    assert any("ood slice has too few rows" in w for w in st["warnings"])
+    assert any("not seen in train" in w for w in st["warnings"])
 
 
 def test_committed_data_is_clean_and_tags_match_labels():
     splits = {"train": cd.load("train.jsonl"), "test": cd.load("test.jsonl")}
     rep = cd.check(splits)
     assert rep["errors"] == [], rep["errors"]
+    assert rep["warnings"] == [], rep["warnings"]
     expect = {"rule1_keyword": "high", "rule1_amount": "high", "rule2_amount": "medium",
               "rule2_shipping_days": "medium", "rule3_default": "low"}
     for rows in splits.values():
         for r in rows:
             assert expect[cd.difficulty_tags(r)[0]] == r["reference_answer"]["priority"], r
-    # Known weakness of the synthetic generator, surfaced by the checker (see lesson 11 section 4).
-    assert rep["stats"]["test"]["template_overlap_with_train"] > 0.9
-    assert any("too few rows" in w and "account" in w for w in rep["warnings"])
+    st = rep["stats"]["test"]
+    # Split by construction (lesson 11 section 4): no shared phrasing, every class measurable.
+    assert st["template_id_overlap_with_train"] == 0 and st["template_overlap_with_train"] < 0.05
+    assert min(st["class_counts"].values()) >= 30 and min(st["distinct_texts_per_class"].values()) >= 30
+    assert st["ood"]["rows"] == 50 and min(st["ood"]["class_counts"].values()) >= 10
+    assert st["ood"]["unseen_format_rate"] == 1.0

@@ -5,7 +5,9 @@ Usage:
   python evaluate.py --model <FINE_TUNED_MODEL_ID> --runs 3 --save ft.jsonl
   python compare.py base.jsonl ft.jsonl          # paired bootstrap CIs
 Reports mean reward, exact match (all four fields right), strict exact match (also no
-format penalty), JSON format rate and per-field accuracy.
+format penalty), JSON format rate and per-field accuracy, then exact match per test slice
+("new_phrasing" = held-out phrasings, "ood" = held-out formats / languages; see make_dataset.py).
+Saved records carry the slice, so compare.py --slice ood gives the CI for one slice.
 
 Serving settings: evaluate both models with the SAME temperature and max_tokens, set to
 what you will serve with. Training rewards come from sampled rollouts, so they are not a
@@ -53,7 +55,9 @@ def main():
             text = out.choices[0].message.content or ""
             s, comps = score_one(text, r["reference_answer"])
             scores.append(s)
-            records.append(record_from(r.get("task_id"), run, s, comps, text, model=args.model))
+            rec = record_from(r.get("task_id"), run, s, comps, text, model=args.model)
+            rec["slice"] = r.get("slice")
+            records.append(rec)
         run_recs = [x for x in records if x["run"] == run]
         print(f"run {run + 1}: mean_reward={statistics.mean(scores):.3f} "
               f"exact_match={statistics.mean(x['all_correct'] for x in run_recs):.3f}")
@@ -62,6 +66,10 @@ def main():
     print(f"mean_reward {summ['score']:.3f}  exact_match {summ['all_correct']:.3f}  "
           f"strict_exact {summ['strict_exact']:.3f}  format {summ['format']:.3f}  mean_chars {summ['chars']:.0f}")
     print("field accuracy:", {k: round(summ['field_' + k], 3) for k in WEIGHTS})
+    for sl in sorted({x["slice"] for x in records if x.get("slice")}):
+        sub = summarize([x for x in records if x.get("slice") == sl])
+        n_sl = sum(r.get("slice") == sl for r in rows)
+        print(f"slice {sl:<13} n={n_sl:<4} exact_match {sub['all_correct']:.3f}  mean_reward {sub['score']:.3f}")
     if args.save:
         with open(args.save, "w", encoding="utf-8") as f:
             for x in records:
