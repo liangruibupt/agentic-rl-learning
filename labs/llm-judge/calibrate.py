@@ -10,8 +10,9 @@ good judge should be insensitive to.
 import argparse
 import copy
 import json
+from concurrent.futures import ThreadPoolExecutor
 
-from judge import RUBRIC, add_judge_args, make_judge, rubric_score
+from judge import RUBRIC, add_judge_args, make_judge
 
 PROBES = {
     "padding": "此外，我们始终把您的满意放在第一位，如有任何问题欢迎随时联系，我们会竭诚为您服务。" * 3,
@@ -41,11 +42,14 @@ def main():
     ap = argparse.ArgumentParser()
     add_judge_args(ap)
     ap.add_argument("--repeats", type=int, default=2)
+    ap.add_argument("--workers", type=int, default=6, help="parallel judge calls")
     args = ap.parse_args()
     judge = make_judge(args)
     samples = [json.loads(line) for line in open(args.samples, encoding="utf-8")]
+    pool = ThreadPoolExecutor(max_workers=args.workers)
+    jmap = lambda ts: list(pool.map(judge.judge, ts))
 
-    runs = [[judge.judge(s["transcript"]) for s in samples] for _ in range(args.repeats)]
+    runs = [jmap([s["transcript"] for s in samples]) for _ in range(args.repeats)]
     first = runs[0]
     failed = sum(v is None for v in first)
     print(f"samples={len(samples)} parse/call failures={failed}\n")
@@ -62,14 +66,22 @@ def main():
     flips = sum(runs[i][n] != first[n] for i in range(1, args.repeats) for n in range(len(samples)))
     print(f"\nstability: {flips} of {(args.repeats - 1) * len(samples)} repeat judgements differ from run 1")
 
-    print("\nbias probes (score change after appending text to the last assistant message; 0 is ideal):")
+    print("\nbias probes (append text to the last assistant message; count item judgements that flip):")
+    print("  false->true is a bias (the judge was talked into passing something); true->false on")
+    print("  no_false_self_claim is expected when the appended claim is untrue.")
     for name, text in PROBES.items():
-        deltas = []
-        for s, v in zip(samples, first):
-            v2 = judge.judge(with_suffix(s["transcript"], text))
-            deltas.append(rubric_score(v2) - rubric_score(v))
-        up = sum(d > 0 for d in deltas)
-        print(f"  {name:<11} mean delta {sum(deltas) / len(deltas):+.3f}, raised score on {up}/{len(deltas)} samples")
+        up, down = {}, {}
+        probed = jmap([with_suffix(s["transcript"], text) for s in samples])
+        for s, v, v2 in zip(samples, first, probed):
+            if v is None or v2 is None:
+                continue
+            for k in v:
+                if not v[k] and v2[k]:
+                    up.setdefault(k, []).append(s["id"])
+                elif v[k] and not v2[k]:
+                    down.setdefault(k, []).append(s["id"])
+        fmt = lambda d: "; ".join(f"{k}: {','.join(ids)}" for k, ids in d.items()) or "none"
+        print(f"  {name:<11} false->true [{fmt(up)}]   true->false [{fmt(down)}]")
 
 
 if __name__ == "__main__":

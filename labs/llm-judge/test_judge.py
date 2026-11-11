@@ -4,7 +4,7 @@ python -c "import test_judge as t; [getattr(t,n)() for n in dir(t) if n.startswi
 import itertools
 import json
 
-from judge import RUBRIC, MockJudge, build_prompt, combine_reward, parse_verdict, rubric_score
+from judge import RUBRIC, BedrockJudge, MockJudge, build_prompt, combine_reward, parse_verdict, rubric_score
 
 IDS = [r["id"] for r in RUBRIC]
 
@@ -14,8 +14,9 @@ def verdict_json(values, extra=""):
 
 
 def test_parse_ok_with_preamble():
-    v = parse_verdict(verdict_json([True, False, True, True, True], extra="好的，评审结果如下：\n"))
-    assert v["cite_policy_on_refusal"] is False and sum(v.values()) == 4
+    vals = [True, False] + [True] * (len(IDS) - 2)
+    v = parse_verdict(verdict_json(vals, extra="好的，评审结果如下：\n"))
+    assert v["cite_policy_on_refusal"] is False and sum(v.values()) == len(IDS) - 1
 
 
 def test_parse_failures_are_none():
@@ -23,7 +24,7 @@ def test_parse_failures_are_none():
     assert parse_verdict("全部合规") is None
     missing = json.dumps({"items": [{"id": IDS[0], "pass": True}]})
     assert parse_verdict(missing) is None
-    not_bool = verdict_json([True] * 5).replace("true", '"yes"', 1)
+    not_bool = verdict_json([True] * len(IDS)).replace("true", '"yes"', 1)
     assert parse_verdict(not_bool) is None
 
 
@@ -59,3 +60,45 @@ def test_mock_judge_on_samples():
     assert all(j.judge(rows["s1"]["transcript"]).values())
     assert j.judge(rows["s2"]["transcript"])["confirm_before_write"] is False
     assert j.judge(rows["s5"]["transcript"])["no_fabrication"] is False
+    assert j.judge(rows["s11"]["transcript"])["no_false_self_claim"] is False
+    assert j.judge(rows["s12"]["transcript"])["no_fabrication"] is False
+
+
+def test_samples_have_every_label():
+    for line in open("samples.jsonl", encoding="utf-8"):
+        assert list(json.loads(line)["human"]) == IDS
+
+
+class _FakeClient:
+    """Stands in for boto3 bedrock-runtime: rejects temperature, returns canned verdicts."""
+
+    class exceptions:
+        class ValidationException(Exception):
+            pass
+
+    def __init__(self, replies):
+        self.replies, self.calls = list(replies), []
+
+    def converse(self, **kw):
+        self.calls.append(kw["inferenceConfig"])
+        if "temperature" in kw["inferenceConfig"]:
+            raise self.exceptions.ValidationException("This model doesn't support the temperature field")
+        return {"output": {"message": {"content": [{"text": self.replies.pop(0)}]}}}
+
+
+def _fake_judge(replies, votes):
+    j = BedrockJudge.__new__(BedrockJudge)
+    j.model_id, j.max_tokens, j.votes, j.use_temperature = "fake", 100, votes, True
+    j.client = _FakeClient(replies)
+    return j
+
+
+def test_temperature_fallback_then_majority_vote():
+    yes, no = [True] * len(IDS), [False] + [True] * (len(IDS) - 1)
+    j = _fake_judge([verdict_json(no), verdict_json(yes), "not json"], votes=3)
+    v = j.judge([{"role": "user", "content": "x"}])
+    assert "temperature" in j.client.calls[0] and all("temperature" not in c for c in j.client.calls[1:])
+    # two valid votes (no, yes) -> tie on item 0 is not a majority -> False; others True
+    assert v[IDS[0]] is False and all(v[i] for i in IDS[1:])
+    j2 = _fake_judge([verdict_json(yes), verdict_json(no), verdict_json(yes)], votes=3)
+    assert all(j2.judge([{"role": "user", "content": "x"}]).values())
