@@ -14,7 +14,7 @@
 | 基础班 | [01 什么是 Agentic RL](01-basics-what-is-agentic-rl.html) | 把 LLM 看成策略；单轮与多轮的本质区别；为什么它现在变得重要 | 单轮/多轮切换、小测验 |
 | 基础班 | [02 一次训练迭代](02-basics-training-loop.html) | 从取任务到权重同步的 8 个步骤；时间花在哪里 | 逐步动画 |
 | 基础班 | [03 GRPO 入门](03-basics-grpo.html) | 组内相对优势；为什么全对或全错的组没有梯度 | 奖励滑块、GRPO / Dr.GRPO 切换 |
-| 中级班 | [04 奖励设计](04-intermediate-reward-design.html) | 奖励来源、单调性检查、防作弊清单 | 复现 Wordle 奖励倒挂案例 |
+| 中级班 | [04 奖励设计](04-intermediate-reward-design.html) | 奖励来源、结果主导 + 有界塑形的推导、LLM 评审奖励设计与校准、防作弊清单（可运行示例见 [labs/llm-judge](labs/llm-judge)） | 复现 Wordle 奖励倒挂案例、评审分跨档演示 |
 | 中级班 | [05 多轮训练关键技术](05-intermediate-agentic-techniques.html) | loss mask、信用分配、训推一致、冷启动、格式漂移、监控指标 | token mask 与奖励分配可视化 |
 | 进阶班 | [06 算法家族](06-advanced-algorithms.html) | PPO、GRPO、RLOO、DAPO、Dr.GRPO、GSPO、CISPO；离策略修正 | clip 计算器 |
 | 进阶班 | [07 系统架构与异步](07-advanced-systems.html) | 系统组件与资源划分；同步 vs 异步 rollout | 可点击架构图、GPU 空等甘特图 |

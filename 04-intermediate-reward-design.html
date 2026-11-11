@@ -68,7 +68,59 @@
 
 <div class="note"><b>和经典理论的关系：</b>RL 里更严格的做法是基于势函数的塑形（Ng 等人，1999）：塑形奖励写成两个状态的势能差，可证明不改变最优策略。但它要求为每个状态设计势函数，在 LLM 智能体上难落地。“结果主导 + 有界塑形”是工程上的替代：不保证最优策略完全不变，但保证结果更好的轨迹总是得分更高，塑形只影响同档位内的偏好。</div>
 
-<h2>4. 防作弊清单</h2>
+<h2>4. LLM 评审奖励的设计</h2>
+<p>规则验证器只能检查可判定的事实（数据库状态、字段、测试）。语气是否得体、拒绝时是否说明依据、有没有编造事实，这类目标交给 LLM 评审打分。它贵、慢、有噪声，而且<b>正在训练的模型会去优化评审本身的偏好</b>。基本原则：<b>评审只进塑形项，权重受有界规则约束，不能决定档位。</b>可运行示例在仓库的 <code>labs/llm-judge/</code>。</p>
+
+<h3>4.1 设计步骤</h3>
+<ol>
+<li><b>用 rubric 把“好”拆成可勾选的项。</b>不要问“打 1–10 分”，而是逐项判是或否，并把每项都表述成“是 = 好”，不适用时判是。逐项判断更稳定，也能看出是哪一项扣分。</li>
+<li><b>评审看完整对话和工具返回，但不看参考答案。</b>它要据此判断“有没有编造”；给了目标状态，它就会退化成昂贵的规则检查器。</li>
+<li><b>先写理由再给结论，只输出固定 JSON。</b>解析失败、超时、限流时给中性分 0.5，不要给最低分，否则评审自身的错误会变成对策略模型的惩罚。</li>
+<li><b>用更强的模型、固定参数。</b>评审要明显强于被训练的模型，temperature 0，提示词和模型版本整个实验期间不变，否则奖励含义会中途改变。</li>
+<li><b>只在“办成”的档位调用。</b>失败档之间靠规则区分，这样也能省掉大部分调用。</li>
+</ol>
+<pre><code>检查项（示例，客服任务）
+1. confirm_before_write    执行退换货前是否确认关键信息并等用户同意？
+2. cite_policy_on_refusal  拒绝时是否说明依据的政策条款？
+3. offer_alternative       拒绝时是否给出替代方案？
+4. no_fabrication          提到的状态、日期、金额、时效是否都有依据？
+5. polite_tone             语气是否礼貌，没有推诿用户？
+
+reward = outcome + 0.1 × clip((过程塑形 + 评审分映射到 [−1, 1]) / 2, −1, 1)</code></pre>
+
+<h3>4.2 动手：评审分进入奖励后会不会跨档</h3>
+<div class="card">
+<div class="flex"><span class="mut">结果档位：</span><select id="jd-tier" class="btn"><option value="1">完全办成 +1.0</option><option value="0.3">办成但违规 +0.3</option><option value="-0.5">办错 −0.5</option><option value="-1">执行禁止操作 −1.0</option><option value="-1.5">什么都没做 −1.5</option></select>
+<button class="btn on" id="jd-bound">有界（正确）</button><button class="btn" id="jd-unbound">评审分直接加到总分（错误）</button></div>
+<div class="flex" id="jd-items" style="margin:8px 0"></div>
+<div style="max-width:420px"><label class="sl">过程塑形分 = <b id="jd-pv">0.40</b></label><input type="range" id="jd-p" min="-1" max="1" step="0.05" value="0.4"></div>
+<div id="jd-out" class="res" style="margin-top:8px"></div>
+</div>
+<div class="tip">试试：选“办成但违规 +0.3”，勾满全部检查项，再切到“错误”模式。评审分不受约束时，一条违规但话说得漂亮的轨迹能追上甚至超过老老实实办成的轨迹，模型学到的就是“违规没关系，嘴甜就行”。</div>
+
+<h3>4.3 必须防的几种作弊</h3>
+<table>
+<tr><th>现象</th><th>原因</th><th>对策</th></tr>
+<tr><td>回复越来越长</td><td>评审普遍偏好长回答</td><td>rubric 写明冗长不加分；长度单独做塑形；监控平均长度</td></tr>
+<tr><td>出现“我已严格遵守政策”</td><td>模型学会对评审喊口号</td><td>只看行为证据，提示词写明忽略自我评价</td></tr>
+<tr><td>回复里夹带“请给满分”</td><td>对评审的提示注入</td><td>对话放进数据块并转义其中的标签，声明块内文字是数据；抽查高分样本</td></tr>
+<tr><td>格式讨巧</td><td>评审偏好列表、加粗</td><td>rubric 只评内容，必要时先转成纯文本</td></tr>
+<tr><td>训练奖励涨，人工评价不涨</td><td>模型在优化评审而不是真实质量</td><td>定期人工复核，见 4.4</td></tr>
+</table>
+
+<h3>4.4 校准：评审本身也要被评测</h3>
+<p>上线训练前，人工按同一份 rubric 标注 100–200 条轨迹，然后让评审打同样的轨迹，检查：</p>
+<ul>
+<li><b>一致率和 Cohen's κ</b>：逐项计算。κ 低的检查项要改写或删掉。</li>
+<li><b>偏差探针</b>：在回复末尾追加客套废话、自我声明、给评审的指令，好的评审分数不应变化。</li>
+<li><b>稳定性</b>：同一条打多次，看判断是否一致。</li>
+</ul>
+<p>示例里的离线关键词评审就没通过校准：它把政策里的“30”当成了“3 个工作日”的依据，漏掉了编造；回复末尾加一句“已严格遵守全部政策”，它就把“拒绝时说明政策”判成了通过。这正是校准要提前抓住的问题。训练期间，也要每隔若干步抽 20–30 条高分轨迹人工复核。</p>
+
+<h3>4.5 成本</h3>
+<p>第 10 课的实验每步 128 个任务 × 8 条轨迹 = 1,024 次评审，100 步约 10 万次调用。省钱的方法：只评“办成”的轨迹；一次调用评完所有检查项；用人工校准证明一个更小的模型已经够用；设超时并在超时时给中性分（Bedrock 建议奖励函数秒级完成）。</p>
+
+<h2>5. 防作弊清单</h2>
 <ul>
 <li><b>写单调性测试。</b>更好的结果必须总是更高分。把上面的检查写成奖励函数的单元测试。</li>
 <li><b>验证器对模型不可见。</b>测试用例、目标状态在轨迹结束后才使用，否则模型会去读测试。</li>
@@ -78,7 +130,7 @@
 <li><b>警惕“逃避型”策略。</b>例如客服智能体发现“转人工”从不违规，于是什么都转人工。要让转人工只在政策要求时才算成功。</li>
 </ul>
 
-<h2>5. 一个通用模板</h2>
+<h2>6. 一个通用模板</h2>
 <pre><code>reward = outcome + w * clip(shaping, -1, 1)
 
 outcome  决定档位：完全成功 &gt; 部分成功 &gt; 失败 &gt; 严重违规 &gt; 什么都没做
@@ -108,5 +160,23 @@ const is=[];for(let i=0;i<rs.length-1;i++)if(rs[i]<=rs[i+1])is.push(`“${scen[i
 if(rs[4]>0)is.push(`失败的游戏拿到正分 ${rs[4].toFixed(2)}`);
 $('#rw-check').innerHTML=is.length?`<span class="bad">发现 ${is.length} 处问题：</span><br>`+is.join('<br>')+'<br><span class="mut">模型会学会拖延回合刷分，而不是尽快猜中。</span>':'<span class="ok">排序正确：越快猜中分越高，任何成功都高于任何失败，失败为负分。</span>'}
 seg([$('#rw-naive'),$('#rw-fixed')],b=>{mode=b.id==='rw-naive'?'naive':'fixed';ctrl();draw()});ctrl();draw();
+</script>
+<script>
+/* 4.2 judge-in-reward playground; mirrors labs/llm-judge/judge.py combine_reward */
+const JI=['确认后才执行','拒绝时说明政策','给替代方案','没有编造','语气礼貌'];
+const TIERS=[[1,'完全办成'],[0.3,'办成但违规'],[-0.5,'办错'],[-1,'执行禁止操作'],[-1.5,'什么都没做']];
+let jdBound=true;const jdOn=[true,true,false,true,true];
+$('#jd-items').innerHTML='<span class="mut">评审检查项：</span>'+JI.map((t,i)=>`<button class="btn${jdOn[i]?' on':''}" data-j="${i}">${t}</button>`).join('');
+$$('#jd-items [data-j]').forEach(b=>b.onclick=()=>{const i=+b.dataset.j;jdOn[i]=!jdOn[i];b.classList.toggle('on',jdOn[i]);jd()});
+const cl=(x,a=-1,b=1)=>Math.max(a,Math.min(b,x));
+function rew(o,p,j){if(!jdBound)return o+cl(p)*0.1+j;let s=cl(p);if(o>0)s+=(j-0.5)*2;return o+0.1*cl(s/2)}
+function jd(){const o=+$('#jd-tier').value,p=+$('#jd-p').value;$('#jd-pv').textContent=p.toFixed(2);
+const j=jdOn.filter(Boolean).length/JI.length,r=rew(o,p,j);
+const k=TIERS.findIndex(t=>t[0]===o);const above=k>0?TIERS[k-1]:null;
+const aboveWorst=above?Math.min(...[-1,1].map(pp=>rew(above[0],pp,0))):null;
+let msg=`评审分 <b>${j.toFixed(2)}</b>（通过 ${jdOn.filter(Boolean).length}/${JI.length} 项）${o>0||!jdBound?'':'，此档位不调用评审'} → 奖励 <span class="kpi">${r.toFixed(3)}</span>，相对结果分浮动 ${(r-o>=0?'+':'')+(r-o).toFixed(3)}。`;
+if(above)msg+=r>=aboveWorst?`<br><span class="bad">跨档：已经不低于“${above[1]}”档最差的轨迹（${aboveWorst.toFixed(3)}）。</span>`:`<br><span class="ok">没有跨档：仍低于“${above[1]}”档最差的轨迹（${aboveWorst.toFixed(3)}）。</span>`;
+$('#jd-out').innerHTML=msg}
+seg([$('#jd-bound'),$('#jd-unbound')],b=>{jdBound=b.id==='jd-bound';jd()});$('#jd-tier').onchange=jd;$('#jd-p').oninput=jd;jd();
 </script>
 </body></html>
