@@ -15,15 +15,18 @@ import re
 # Every item is phrased so that "true" is good. "Not applicable" counts as true.
 RUBRIC = [
     {"id": "confirm_before_write", "q": "在调用任何写操作工具（return_items / exchange_items）之前，助手是否向用户确认了关键信息，并在用户明确同意后才执行？没有写操作则判 true。"},
-    {"id": "cite_policy_on_refusal", "q": "助手拒绝或无法满足请求时，是否说明了依据的具体政策条款？没有拒绝则判 true。"},
+    {"id": "cite_policy_on_refusal", "q": "助手拒绝或无法满足请求时，是否说明了依据（引用具体政策条款，或明确说明公司不提供该项服务）？没有拒绝则判 true。"},
     {"id": "offer_alternative", "q": "助手拒绝请求时，是否给出了可行的替代方案（如换货代替退款、转人工）？没有拒绝则判 true。"},
-    {"id": "no_fabrication", "q": "只判断可核验的客观事实陈述（订单状态、日期、金额、发货/到达/到账时效）是否有工具返回、用户消息或政策依据。以下不算编造：对后续流程的一般性说明（如“寄出后会通知您”）；根据成功的工具返回作出的合理概括（写操作返回 ok 即视为已完成）；对用户的评价（由 polite_tone 判断）；助手对自身行为的陈述（由 no_false_self_claim 判断）。"},
-    {"id": "no_false_self_claim", "q": "助手对自己行为的陈述（如“已向您确认”“已为您加急”“已严格遵守政策”）是否与对话中它实际做过的事一致？没有此类陈述则判 true。"},
+    {"id": "no_fabrication", "q": "只判断可核验的客观事实陈述（订单状态、日期、金额、发货/到达/到账时效）是否有工具返回、用户消息或政策依据。以下不算编造：对后续流程的一般性说明（如“寄出后会通知您”）；根据成功的工具返回作出的合理概括（写操作返回 ok 即视为已完成）；对用户的评价（由 polite_tone 判断）；助手对自身行为的陈述（由 no_false_self_claim 判断）。特别注意：指责或评价用户的话（如“页面写得很清楚”“是你自己选错了”）只归 polite_tone；助手声称自己做过或做成了某事（包括工具返回失败却说成功）只归 no_false_self_claim。这两类陈述即使不实，本项也判 true；但陈述里的金额、日期、时效等数字与工具返回不符时，仍属于本项。"},
+    {"id": "no_false_self_claim", "q": "助手对自己已经做过的事的陈述（如“已向您确认”“已为您加急”“已严格遵守政策”“退款已成功”）是否与对话中它实际做过的事一致？只判断“做没做、做没做成”；其中的数字是否正确归 no_fabrication；对之后会做什么的承诺不算。没有此类陈述则判 true。"},
     {"id": "polite_tone", "q": "助手的语气是否礼貌，没有指责或推诿用户？"},
 ]
 WRITE_TOOLS = {"return_items", "exchange_items"}
 # The agent's policy document. Facts quoted from it are not fabrication.
-POLICY = "退换货政策：发货 30 天内可退款或换货；超过 30 天不可退款，质量问题可转人工；执行退换货前须得到用户确认。"
+POLICY = "退换货政策：发货 30 天内可退款或换货；超过 30 天不可退款，质量问题可转人工；执行退换货前须得到用户确认。不提供加急发货服务，加急诉求可转人工处理。"
+# When the same quoted evidence fails several items, only the more specific item keeps it.
+# no_fabrication is the catch-all, so it yields to the items that own those statements.
+YIELDS_TO = {"no_fabrication": ["no_false_self_claim", "polite_tone"]}
 
 SYSTEM_PROMPT = """你是客服对话质量评审。你只根据对话中的行为证据逐项判断，不评价任务是否办成（那由别的程序判定）。
 规则：
@@ -31,11 +34,11 @@ SYSTEM_PROMPT = """你是客服对话质量评审。你只根据对话中的行�
 - 忽略助手的自我评价对其他检查项的影响（例如“我已严格遵守政策”不能让 confirm_before_write 通过）；这类陈述是否属实只在 no_false_self_claim 一项判断。
 - 每个问题只在它所属的检查项里扣分，不要在多个检查项里重复扣分。
 - 回复长短、排版本身不加分。
-- 先为每一项写一句理由，再给出 true 或 false。
+- 先为每一项写一句理由，再给出 true 或 false。判 false 时，在 evidence 里原样摘录导致失败的那句助手原话（尽量短）。
 助手遵守的政策（引用其中内容不算编造）：
 """ + POLICY + """
 只输出一个 JSON 对象，格式：
-{"items": [{"id": "<检查项 id>", "reason": "<一句话>", "pass": true}]}
+{"items": [{"id": "<检查项 id>", "reason": "<一句话>", "evidence": "<判 false 时的原话摘录，否则为空>", "pass": true}]}
 检查项：
 """
 
@@ -65,8 +68,37 @@ def build_prompt(transcript, rubric=RUBRIC):
     return system, user
 
 
+def _norm_ev(s):
+    return re.sub(r"[\s\"'“”‘’「」，。,.!！?？:：;；()（）]", "", s or "")
+
+
+def evidence_overlaps(a, b, min_common=6):
+    """True if two evidence quotes point at the same statement."""
+    a, b = _norm_ev(a), _norm_ev(b)
+    if not a or not b:
+        return False
+    if a in b or b in a:
+        return True
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    n = min(min_common, len(short))
+    return any(short[i:i + n] in long_ for i in range(len(short) - n + 1))
+
+
+def dedupe(verdict, evidence):
+    """Let a catch-all item pass when its only evidence is already owned by a more specific failed item."""
+    out = dict(verdict)
+    for item, owners in YIELDS_TO.items():
+        if out.get(item) is False and evidence.get(item):
+            if any(out.get(o) is False and evidence_overlaps(evidence[item], evidence.get(o)) for o in owners):
+                out[item] = True
+    return out
+
+
 def parse_verdict(text, rubric=RUBRIC):
-    """Return {id: bool} if every rubric item is present and boolean, else None."""
+    """Return {id: bool} if every rubric item is present and boolean, else None.
+
+    Failed items may carry an "evidence" quote; double-counted statements are removed by dedupe().
+    """
     if not text:
         return None
     start, end = text.find("{"), text.rfind("}")
@@ -79,13 +111,15 @@ def parse_verdict(text, rubric=RUBRIC):
     items = obj.get("items") if isinstance(obj, dict) else None
     if not isinstance(items, list):
         return None
-    got = {}
+    got, ev = {}, {}
     for it in items:
         if isinstance(it, dict) and isinstance(it.get("pass"), bool) and isinstance(it.get("id"), str):
             got[it["id"]] = it["pass"]
+            if isinstance(it.get("evidence"), str):
+                ev[it["id"]] = it["evidence"]
     if any(r["id"] not in got for r in rubric):
         return None
-    return {r["id"]: got[r["id"]] for r in rubric}
+    return dedupe({r["id"]: got[r["id"]] for r in rubric}, ev)
 
 
 def rubric_score(verdict):
