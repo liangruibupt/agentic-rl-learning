@@ -1,11 +1,21 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>02 一次训练迭代</title><link rel="stylesheet" href="assets/style.css"></head>
+<title>02 一次训练迭代</title><link rel="stylesheet" href="assets/style.css">
+<style>
+table.mini td,table.mini th{padding:4px 7px}
+.mono{font-family:"JetBrains Mono",Menlo,Consolas,monospace;font-size:12.5px}
+.seg{cursor:pointer}
+.seg.sel{outline:2px solid var(--acc)}
+.mb{display:flex;gap:3px;flex-wrap:wrap;margin:6px 0}
+.mb span{display:inline-block;min-width:34px;text-align:center;padding:3px 4px;border-radius:5px;border:1px solid var(--line);font-size:12px}
+.ctl label{display:block;font-size:13px;color:var(--mut)}
+</style></head>
 <body><main>
 <span class="badge lv-basic">基础班 · 02</span>
 <h1>一次训练迭代</h1>
-<p class="lead">目标：看清楚 Agentic RL 训练的完整闭环，知道时间花在哪里。点“下一步”逐步走一遍。</p>
+<p class="lead">目标：看清楚 Agentic RL 训练的完整闭环，知道时间花在哪里。先点“下一步”逐步走一遍；再用 AWS 公开的 Wordle 实验把一步里的数字全部算出来，看训练器实际收到的一条数据长什么样；最后讲旧数据、检查点选择，以及每一步常见的故障。</p>
 
+<h2>1. 动手：逐步走一遍</h2>
 <div class="card">
 <svg viewBox="0 0 960 300" width="100%" id="loopsvg">
 <g class="node" id="n0"><rect x="10" y="120" width="130" height="56" rx="10"/><text x="75" y="145" text-anchor="middle">任务池</text><text x="75" y="163" text-anchor="middle" style="font-size:11px;fill:var(--mut)">题面 + 隐藏判定信息</text></g>
@@ -27,11 +37,106 @@
 <div id="lp-text" style="margin-top:8px;min-height:80px"></div>
 </div>
 
-<h2>时间花在哪里</h2>
+<h2>2. 把一步的数字全部算出来</h2>
+<p>AWS 博客的 Wordle 实验（SageMaker AI 多轮 RL，gpt-oss-20b + LoRA）公开了足够多的数字，可以把一个训练步完整算一遍。先解释三类 token，这是托管多轮 RL 的计费口径，也是理解时间和成本的入口（定义来自博客）：</p>
+<ul>
+<li><b>预填充（prefill）token：</b>策略模型读进去的输入 token。多轮任务里每一回合都要把之前的历史重新读一遍，所以会累积。</li>
+<li><b>生成（sample）token：</b>策略模型生成的 token，包括推理（思考）token。</li>
+<li><b>训练（train）token：</b>反向传播更新 LoRA 时处理的 token。</li>
+</ul>
+<div class="card">
+<div class="grid g4 ctl">
+<div><label>每步任务数 B（global_batch_size）</label><input type="number" id="it-B" min="1" step="1" value="128"></div>
+<div><label>每个任务的轨迹数 G（group_size）</label><input type="number" id="it-G" min="1" step="1" value="8"></div>
+<div><label>训练步数</label><input type="number" id="it-S" min="1" step="10" value="100"></div>
+<div><label>训练集任务数</label><input type="number" id="it-N" min="1" step="10" value="640"></div>
+<div><label>每条轨迹预填充 token</label><input type="number" id="it-pp" min="0" step="100" value="4660"></div>
+<div><label>每条轨迹生成 token</label><input type="number" id="it-ps" min="0" step="100" value="1514"></div>
+<div><label>每条轨迹训练 token</label><input type="number" id="it-pt" min="0" step="100" value="6099"></div>
+<div><label>总墙钟时间（小时）</label><input type="number" id="it-h" min="0.1" step="0.5" value="12.67"></div>
+</div>
+<div id="it-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip"><b>默认值的出处：</b>B = 128、G = 8 是服务默认值，博客没有改；训练集 640 个词，100 步。博客报告的总量是 105,486 条 rollout、491,616,806 预填充、159,737,098 生成、643,308,554 训练 token，用时 12 小时 40 分钟（12.67 小时）。每条轨迹的 token 数是总量除以 105,486 后四舍五入。按 100 × 128 × 8 算是 102,400 条，比博客报告的少约 3%，博客没有解释这个差额。</div>
+<p>几点读法：</p>
+<ul>
+<li><b>每个词被反复玩了很多次。</b>640 个词、每步 128 个，5 步过完一遍（一个 epoch），100 步就是 20 遍；每遍每个词玩 8 局，一共 160 局。所以训练集表现会比留出集好，检查点要按留出集选（第 4 节）。</li>
+<li><b>时间：</b>平均一步约 456 秒，约 7.6 分钟。这个总时间里哪些是采样、哪些是训练，博客没有拆开。按第 07 课第 3 节的拆法和那里的示例输入，rollout 阶段占一步的 83%，主要因为同步模式要等最慢的一条轨迹。</li>
+<li><b>成本：</b>按博客写明的 us-east-1 列表价，训练 token 约 $339，AgentCore Runtime 另约 $79。换成你的任务时，用<a href="09-build-your-own.html">第 09 课第 6 节</a>的成本估算器。</li>
+</ul>
+
+<h3>2.1 训练器实际收到的一条数据</h3>
+<p>轨迹跑完后，交给训练器的不是一段文字，而是几个对齐的数组。下面是一条缩短的客服轨迹，把它切成 token 后的样子。<b>token id 和 logprob 都是示意数字，不来自真实的分词器或模型。</b>点击上面的片段，看它对应的 token。</p>
+<div class="card">
+<div id="rec-strip"></div>
+<div id="rec-sel" class="res" style="margin-top:8px"></div>
+<pre id="rec-json" style="margin-top:8px"></pre>
+<div id="rec-out" class="res"></div>
+</div>
+<ul>
+<li><b>token_ids：</b>采样时推理引擎实际产生和读入的 token id。必须原样保存，不能事后把文字重新分词，否则训练的 token 和采样的 token 可能对不上（第 05 课第 3 节）。</li>
+<li><b>logprob：</b>采样那一刻、每个生成 token 在旧策略下的对数概率 log π<sub>old</sub>。训练时用它算重要性比率 ρ = π<sub>θ</sub> / π<sub>old</sub>（第 06 课第 1 节）。非生成 token 没有采样概率，这里记为 null。</li>
+<li><b>loss_mask：</b>1 表示模型生成的 token，参与损失；0 表示提示词和工具返回，只做前向，不参与损失（第 05 课第 1 节）。</li>
+<li><b>reward：</b>验证器在轨迹结束后给的分数，整条轨迹一个数。</li>
+<li><b>group_id：</b>同一个任务的 G 条轨迹共用一个 id，算优势时按它分组。</li>
+</ul>
+
+<h2>3. 同策略数据和“稍微旧一点”的数据</h2>
+<p><b>同策略（on-policy）</b>指用来更新的数据，正好是当前参数 θ 生成的。只要采样之后参数改过一次，剩下的数据就变成了旧策略生成的，叫<b>离策略（off-policy）</b>或“陈旧”（stale）。落后几个版本就叫陈旧度几。为什么会有旧数据：</p>
+<ul>
+<li><b>一批数据分几次更新。</b>DeepSeek-R1 论文里，每次 rollout 生成 8,192 条输出，随机分成 16 个 mini-batch，每个只训练一遍。第 1 个 mini-batch 是同策略的；到第 16 个时，参数已经更新了 15 次。作为对照，DeepSeekMath 每次探索后只更新一次，严格同策略。</li>
+<li><b>异步采样。</b>为了不让 GPU 等最慢的轨迹，异步系统让 rollout 不停地跑，一个训练批里混着不同版本权重生成的数据（第 07 课第 5 节）。SageMaker AI 多轮 RL 的 <code>max_steps_off_policy</code> 默认是 3（第 10 课记录的文档默认值）。</li>
+</ul>
+<div class="card">
+<div style="max-width:420px"><label class="sl">一批数据分成几个 mini-batch 更新 m = <b id="v-mb">16</b></label><input type="range" id="mb-m" min="1" max="32" step="1" value="16"></div>
+<div class="mb" id="mb-strip"></div>
+<div id="mb-out" class="res"></div>
+</div>
+<p><b>旧一点为什么通常没关系，旧太多为什么有问题：</b>重要性比率 ρ = π<sub>θ</sub>(token) / π<sub>old</sub>(token) 修正了“数据是旧策略采的”这件事；clip 把 ρ 限制在 1 ± ε 附近，参数走得太远的 token 就不再贡献梯度。数据越旧，ρ 偏离 1 越多，被 clip 掉的 token 越多，有效样本越少。第 06 课第 8 节用 ρ = e<sup>k·δ</sup> 的简化例子算了这个效应，第 07 课第 5 节模拟了异步系统里各陈旧度的 token 比例。</p>
+
+<h2>4. 选哪个检查点，按什么设置评测</h2>
+<p>训练过程中每隔几步会存一个<b>检查点</b>（当时的参数）。最后用哪一个，取决于你怎么评。Wordle 博客的数字（全部来自博客）：</p>
+<table>
+<tr><th>看的是什么</th><th>数字</th><th>说明</th></tr>
+<tr><td>训练奖励（每局平均）</td><td>约 15 步内升到 +0.57 后持平</td><td>训练集上的表现，词会重复出现，不能用来选检查点</td></tr>
+<tr><td>训练任务里的验证（留出 128 个词，temperature 0，low 推理强度）</td><td>前 10 步从 2% 升到 31%，之后在 35% 到 48% 之间波动；第 90 步最高 48%，最后 37%</td><td>博客说这些波动大多是噪声；训练任务的验证固定用 temperature 0</td></tr>
+<tr><td>评测任务（同样 128 个词，默认推理强度，temperature 1.0）</td><td>基座 61% → 训练后 84%（两次运行 80% 和 88% 的平均）</td><td>这是上线时的设置。同一个适配器，训练曲线说 37%，按服务设置评测是 84%</td></tr>
+</table>
+<p>三条做法：</p>
+<ol>
+<li><b>按留出集选检查点，不按训练奖励。</b>Bedrock RFT 文档也提醒要看过拟合：训练奖励上升、验证奖励下降。</li>
+<li><b>按上线时的设置评测</b>：temperature、推理强度、最大回合数都和服务一致。验证曲线可以用 temperature 0 做趋势对比，但不能代表上线效果。</li>
+<li><b>先算噪声有多大，再比较检查点。</b>验证集只有 n 道题时，解出率 p 的标准误约为 √(p(1−p)/n)。</li>
+</ol>
+<div class="card">
+<div class="grid g2">
+<div><label class="sl">验证集题数 n = <b id="v-ci-n">128</b></label><input type="range" id="ci-n" min="20" max="1000" step="1" value="128"></div>
+<div><label class="sl">解出率 p = <b id="v-ci-p">0.40</b></label><input type="range" id="ci-p" min="0.01" max="0.99" step="0.01" value="0.4"></div>
+</div>
+<div id="ci-out" class="res" style="margin-top:6px"></div>
+</div>
+<p class="mut">这是二项分布的正态近似，题与题之间有关联、或者每题只跑一次时会低估真实波动。比较两个检查点时，最好在同一组题上每题多跑几次。</p>
+
+<h2>5. 时间花在哪里</h2>
 <p>以 AWS 博客公开的 Wordle 多轮 RL 实验为例：100 个训练步，一共玩了 105,486 局游戏，耗时 12 小时 40 分钟。真正的梯度更新只占其中一部分，大部分墙钟时间在<b>和环境交互</b>上。SWE 类任务一条轨迹可能跑几十分钟，这个比例更极端。</p>
 <div class="tip">所以 Agentic RL 的工程重心在 <b>rollout 侧</b>：并发沙箱、超时与重试、异步调度。这是它和单轮 RL 在系统上的最大区别，第 07 课会展开。</div>
 
-<h2>关键术语</h2>
+<h2>6. 每一步可能出什么错</h2>
+<p>按第 1 节的 8 个步骤列出常见故障。标了“Wordle”的都是博客里实际遇到的。</p>
+<table>
+<tr><th>步骤</th><th>常见故障</th><th>症状</th><th>先查什么 / 去哪课</th></tr>
+<tr><td>① 取任务</td><td>任务太简单或太难；训练集和验证集重叠</td><td>大量组全对或全错，奖励不动；验证分虚高</td><td>先测基线成功率（第 09 课第 2 节）；训练和验证任务不重叠（Wordle 的 640 和 128 个词没有重叠）</td></tr>
+<tr><td>② 开始采样</td><td>生成上限太小；温度太低</td><td>还没调用工具就被截断；组内轨迹几乎一样</td><td>Wordle：默认 4096 token 时 gpt-oss 常在第一次调用工具前就用完，改成服务上限 8192；温度见第 01 课第 3.1 节</td></tr>
+<tr><td>③ 多轮交互</td><td>并发下鉴权失败；一条 rollout 没请求过模型；训练中重新部署智能体</td><td>403；整个训练任务失败</td><td>Wordle：32 个并发时凭证刷新出问题，改为单个自动刷新的会话 + 短缓存 + 遇 403 重签；任何 rollout 都要返回一个奖励；训练期间不要重新部署（第 07 课第 8 节）</td></tr>
+<tr><td>④ 记录轨迹</td><td>事后重新分词；mask 标错</td><td>第一步训练时 |log ρ| 就很大；工具返回被训练</td><td>第 05 课第 1、3 节</td></tr>
+<tr><td>⑤ 计算奖励</td><td>奖励倒挂：差的轨迹分更高</td><td>奖励涨了，任务成功率没涨</td><td>Wordle 第一版奖励里，输掉的一局能拿到约 +0.49；读轨迹，写单调性测试（第 04 课第 2 节）</td></tr>
+<tr><td>⑥ 估计优势</td><td>组内奖励全一样</td><td>优势全 0，算力白花</td><td>第 03 课第 4 节算零方差组的比例</td></tr>
+<tr><td>⑦ 梯度更新</td><td>学习率太高；熵塌缩</td><td>Wordle：学习率太高时模型把工具调用写成普通文字，每条轨迹拿同样的最低分，梯度消失；回答越来越像</td><td>降学习率；看熵和有效工具调用率（第 05 课第 6 节、第 06 课第 3 节）</td></tr>
+<tr><td>⑧ 权重同步</td><td>异步时数据太旧</td><td>被 clip 的 token 比例上升，训练变慢或不稳</td><td>限制最大陈旧度（第 07 课第 5 节、第 06 课第 8 节）</td></tr>
+</table>
+<p class="mut">Bedrock RFT 文档还列了几种要警惕的训练曲线：奖励停在 0.15 以下不动、奖励方差随时间变大、验证表现下降。</p>
+
+<h2>7. 关键术语</h2>
 <table>
 <tr><th>术语</th><th>含义</th></tr>
 <tr><td>Rollout</td><td>用当前策略完整跑一遍任务，得到一条轨迹</td></tr>
@@ -40,11 +145,39 @@
 <tr><td>Verifier（验证器）</td><td>判定任务是否成功的程序，轨迹结束后才运行，对模型不可见</td></tr>
 <tr><td>Weight sync</td><td>把训练后的新权重同步到推理引擎</td></tr>
 <tr><td>LoRA</td><td>只训练少量低秩适配器参数，托管服务普遍采用，成本低</td></tr>
+<tr><td>Epoch</td><td>把训练集里的任务全部用过一遍</td></tr>
+<tr><td>检查点（checkpoint）</td><td>训练中某一步保存下来的参数，可以单独评测和部署</td></tr>
+<tr><td>Loss mask</td><td>标记哪些 token 参与损失：模型生成的为 1，提示词和工具返回为 0</td></tr>
 </table>
 
+<h2>8. 小测验</h2>
 <div class="quiz" data-answer="1"><b>每步 128 个任务、group size 为 8，一个训练步要跑多少条轨迹？</b><br>
 <button class="btn opt">A. 128</button><button class="btn opt">B. 1,024</button><button class="btn opt">C. 16</button>
 <div class="qe">正确答案 B：128 × 8 = 1,024。这就是 Agentic RL 需要大规模并发沙箱的原因。</div></div>
+<div class="quiz" data-answer="2"><b>Wordle 实验里，训练任务的验证曲线最后是 37%，按服务设置（temperature 1.0、默认推理强度）评测是 84%。上线前应该相信哪个数？</b><br>
+<button class="btn opt">A. 37%，因为它是训练过程中官方给出的曲线</button>
+<button class="btn opt">B. 两者取平均，约 60%</button>
+<button class="btn opt">C. 84%，因为它是按上线时的解码设置测的；37% 用的是 temperature 0，只适合做趋势对比</button>
+<div class="qe">正确答案 C。评测要和服务设置一致。另外 128 道题时解出率 40% 左右的标准误约 4.3 个百分点，曲线上 35% 到 48% 的波动大多是噪声，选检查点时要把这一点算进去。</div></div>
+<div class="quiz" data-answer="0"><b>一次 rollout 生成 8,192 条输出，分成 16 个 mini-batch 依次更新、每个只训练一遍。第 16 个 mini-batch 训练时，数据落后当前参数几个版本？</b><br>
+<button class="btn opt">A. 15 个：前面 15 个 mini-batch 各更新过一次参数</button>
+<button class="btn opt">B. 0 个：它们来自同一次 rollout，所以都是同策略</button>
+<button class="btn opt">C. 16 个</button>
+<div class="qe">正确答案 A。这是 DeepSeek-R1 论文的设置。数据是同一次采样产生的，但参数在训练途中已经变了，重要性比率和 clip 负责修正这部分偏差。</div></div>
+<div class="quiz" data-answer="1"><b>训练奖励一直在涨，但留出集的成功率不动。下面哪项最该先查？</b><br>
+<button class="btn opt">A. 加大 group size</button>
+<button class="btn opt">B. 读几十条高奖励轨迹，看奖励是否被钻了空子；再确认训练任务和留出任务没有重叠、留出集按服务设置评测</button>
+<button class="btn opt">C. 换一个算法</button>
+<div class="qe">正确答案 B。常见原因是奖励倒挂（Wordle 第一版奖励里输掉的一局也有正分）或过拟合训练任务。先确认奖励和评测是对的，再谈算法和超参（第 04、05 课）。</div></div>
+
+<h2>9. 参考资料</h2>
+<ul>
+<li>AWS 博客：<a href="https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/">Multi-Turn Reinforcement Learning on Amazon SageMaker AI: A hands-on guide</a>。三类 token 的定义与用量、105,486 条 rollout、12 小时 40 分钟、640 / 128 个词、global_batch_size 128 与 group_size 8 的默认值、sampling_max_tokens 8192、训练与验证曲线、37% vs 84%、并发鉴权和学习率过高等故障。2026-11-11 访问。</li>
+<li>DeepSeek-AI. <a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a>（arXiv 2501.12948 v2）。每次 rollout 8,192 条输出、分成 16 个 mini-batch、单个内层 epoch。</li>
+<li>Shao et al. <a href="https://arxiv.org/abs/2402.03300">DeepSeekMath</a>（arXiv 2402.03300）。每次探索后策略只更新一次。</li>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Customize a model with reinforcement fine-tuning in Amazon Bedrock</a>。监控训练：过拟合、奖励停在 0.15 以下、方差变大。2026-11-11 访问。</li>
+<li>本课程：<a href="05-intermediate-agentic-techniques.html">05 多轮训练关键技术</a>、<a href="06-advanced-algorithms.html">06 算法家族</a>（第 8 节）、<a href="07-advanced-systems.html">07 系统架构与异步</a>（第 3、5 节）、<a href="10-aws-experiment.html">10 AWS 实验设计</a>。</li>
+</ul>
 </main>
 <script src="assets/common.js"></script>
 <script>
@@ -61,5 +194,63 @@ let li=0;
 function draw(){$$('#loopsvg .node').forEach(g=>g.classList.remove('hi'));$$('#loopsvg .edge').forEach(g=>g.classList.remove('hi'));
 const s=steps[li];s.n.forEach(i=>$('#'+i).classList.add('hi'));s.e.forEach(i=>$('#'+i).classList.add('hi'));$('#lp-text').innerHTML=s.t;$('#lp-cnt').textContent=`步骤 ${li+1} / ${steps.length}`}
 $('#lp-next').onclick=()=>{li=(li+1)%steps.length;draw()};$('#lp-prev').onclick=()=>{li=(li-1+steps.length)%steps.length;draw()};$('#lp-reset').onclick=()=>{li=0;draw()};draw();
+
+/* 2. one-step numbers */
+const nf=(x,d=0)=>(+x).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const big=x=>x>=1e8?nf(x/1e8,2)+' 亿':x>=1e4?nf(x/1e4,1)+' 万':nf(x);
+const pos=(id,lo)=>{const v=+$(id).value;return Number.isFinite(v)&&v>=lo?v:lo};
+function itDraw(){const B=pos('#it-B',1),G=pos('#it-G',1),S=pos('#it-S',1),N=pos('#it-N',1),pp=pos('#it-pp',0),ps=pos('#it-ps',0),pt=pos('#it-pt',0),h=pos('#it-h',0.01);
+const R=B*G,RT=R*S,ep=B*S/N,games=ep*G;
+$('#it-out').innerHTML=`<table class="mini"><tr><th></th><th>每步</th><th>整个训练（${nf(S)} 步）</th></tr>
+<tr><td>轨迹数 = B × G</td><td><b>${nf(R)}</b></td><td>${nf(RT)}</td></tr>
+<tr><td>预填充 token</td><td>${big(R*pp)}</td><td>${big(RT*pp)}</td></tr>
+<tr><td>生成 token</td><td>${big(R*ps)}</td><td>${big(RT*ps)}</td></tr>
+<tr><td>训练 token</td><td>${big(R*pt)}</td><td>${big(RT*pt)}</td></tr>
+<tr><td>平均每步墙钟时间</td><td>${nf(h*3600/S)} 秒（${nf(h*60/S,1)} 分钟）</td><td>${nf(h,2)} 小时</td></tr></table>
+训练集 ${nf(N)} 个任务，${nf(S)} 步共用了 ${nf(ep,1)} 个 epoch；平均每个任务被采样 ${nf(games,0)} 次。`}
+['#it-B','#it-G','#it-S','#it-N','#it-pp','#it-ps','#it-pt','#it-h'].forEach(id=>$(id).oninput=itDraw);itDraw();
+
+/* 2.1 example record */
+const REC=[
+{c:'t-sys',txt:'系统：你是客服助手',ids:[9001,9002,9003],m:0},
+{c:'t-usr',txt:'用户：订单 88 换 42 码',ids:[1201,1202,1203,1204],m:0},
+{c:'t-gen',txt:'get_order(88)',ids:[3301,3302,3303],m:1,lp:[-0.21,-0.05,-0.02]},
+{c:'t-tool',txt:'工具：已发货 12 天，41 码',ids:[5101,5102,5103,5104,5105],m:0},
+{c:'t-gen',txt:'exchange(88, 42)',ids:[3311,3312,3313,3314],m:1,lp:[-0.64,-0.03,-0.11,-0.02]},
+{c:'t-tool',txt:'工具：成功',ids:[5201,5202],m:0},
+{c:'t-gen',txt:'已为您换成 42 码',ids:[4101,4102,4103],m:1,lp:[-0.35,-0.08,-0.01]}];
+const GROUP=[1,0,0,1];
+let recSel=2;
+function recDraw(){
+$('#rec-strip').innerHTML=REC.map((s,i)=>`<span class="tok ${s.c} seg${i===recSel?' sel':''}" data-i="${i}">${s.txt}</span>`).join('');
+$$('#rec-strip .seg').forEach(e=>e.onclick=()=>{recSel=+e.dataset.i;recDraw()});
+const s=REC[recSel];
+$('#rec-sel').innerHTML=`选中片段 “${s.txt}”：${s.ids.length} 个 token，id = [${s.ids.join(', ')}]，loss_mask = ${s.m}，`+(s.m?`采样时的 logprob = [${s.lp.map(v=>v.toFixed(2)).join(', ')}]，即概率 [${s.lp.map(v=>Math.exp(v).toFixed(3)).join(', ')}]。`:'不是模型生成的，没有采样 logprob，不参与损失。');
+const ids=[],mask=[],lps=[];REC.forEach(x=>x.ids.forEach((id,j)=>{ids.push(id);mask.push(x.m);lps.push(x.m?x.lp[j]:null)}));
+const fmt=v=>v===null?'null':v.toFixed(2);
+$('#rec-json').textContent=`{
+  "group_id": "task-0017",
+  "token_ids":   [${ids.join(', ')}],
+  "loss_mask":   [${mask.join(', ')}],
+  "logprob_old": [${lps.map(fmt).join(', ')}],
+  "reward": 1.0
+}`;
+const n=mask.reduce((a,b)=>a+b,0),G=GROUP.length,m=GROUP.reduce((a,b)=>a+b,0)/G,sd=Math.sqrt(GROUP.reduce((a,b)=>a+(b-m)**2,0)/G),A=(GROUP[0]-m)/sd;
+$('#rec-out').innerHTML=`共 <b>${ids.length}</b> 个 token，其中 loss_mask = 1 的 <b>${n}</b> 个参与损失。假设同组 4 条轨迹的奖励是 [${GROUP.join(', ')}]，这条是第 1 条：组均值 ${m.toFixed(2)}，标准差 ${sd.toFixed(2)}，优势 A = (1 − ${m.toFixed(2)}) / ${sd.toFixed(2)} = <b>${A.toFixed(2)}</b>。按 GRPO 的样本级平均，这 ${n} 个 token 每个的权重是 A / (G × ${n}) = ${A.toFixed(2)} / (${G} × ${n}) = <b>${(A/(G*n)).toFixed(4)}</b>（第 03 课第 2 节）。`}
+recDraw();
+
+/* 3. mini-batch staleness */
+function mbDraw(){const m=+$('#mb-m').value;$('#v-mb').textContent=m;
+let h='';for(let j=0;j<m;j++)h+=`<span style="background:color-mix(in srgb,var(--warn) ${m>1?Math.round(j/(m-1)*60):0}%,var(--panel2))">${j}</span>`;
+$('#mb-strip').innerHTML=h;
+const avg=(m-1)/2;
+$('#mb-out').innerHTML=`格子里的数字是第几个 mini-batch 训练时，数据落后当前参数的版本数：第 1 个是 0（同策略），最后一个是 <b>${m-1}</b>。平均陈旧度 (m − 1) / 2 = <b>${avg.toFixed(1)}</b>；严格同策略的比例 1 / m = <b>${(100/m).toFixed(1)}%</b>。`+(m===16?' 这是 DeepSeek-R1 论文的设置。':m===1?' 这是 DeepSeekMath 的做法：每次采样只更新一次。':'')}
+$('#mb-m').oninput=mbDraw;mbDraw();
+
+/* 4. CI for validation accuracy */
+function ciDraw(){const n=+$('#ci-n').value,p=+$('#ci-p').value;$('#v-ci-n').textContent=n;$('#v-ci-p').textContent=p.toFixed(2);
+const se=Math.sqrt(p*(1-p)/n);
+$('#ci-out').innerHTML=`标准误 √(p(1−p)/n) = <b>${(se*100).toFixed(1)}</b> 个百分点；95% 区间约 p ± 1.96 × 标准误 = <b>${(Math.max(0,p-1.96*se)*100).toFixed(1)}% 到 ${(Math.min(1,p+1.96*se)*100).toFixed(1)}%</b>。两个检查点的差别如果在这个范围内，很可能只是噪声。`}
+$('#ci-n').oninput=ciDraw;$('#ci-p').oninput=ciDraw;ciDraw();
 </script>
 </body></html>

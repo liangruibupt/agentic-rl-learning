@@ -7,18 +7,44 @@
 .bar{width:70%;position:absolute;left:15%;border-radius:4px;transition:.2s}
 .zero{position:absolute;left:0;right:0;top:50%;border-top:1px dashed var(--mut)}
 .al{position:absolute;left:0;right:0;text-align:center;font-size:11px;color:var(--mut)}
+table.mini td,table.mini th{padding:4px 7px}
+.mono{font-family:"JetBrains Mono",Menlo,Consolas,monospace;font-size:12.5px}
+.ctl label{display:block;font-size:13px;color:var(--mut)}
+.plot{width:100%;height:190px;background:var(--panel2);border:1px solid var(--line);border-radius:8px}
+.plot text{font-size:11px;fill:var(--mut)}
+.plot .cv{fill:none;stroke-width:2.2}
+.pb{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13.5px}
+.pb .lb{width:96px;flex:none;white-space:nowrap}
+.pb .tr{flex:1;height:16px;background:var(--panel2);border:1px solid var(--line);border-radius:4px;position:relative}
+.pb .fl{position:absolute;left:0;top:0;bottom:0;border-radius:3px}
+.pb .vl{width:150px;flex:none;text-align:right;font-family:"JetBrains Mono",Menlo,Consolas,monospace;font-size:12.5px}
 </style></head>
 <body><main>
 <span class="badge lv-basic">基础班 · 03</span>
 <h1>GRPO 入门：组内比较怎样产生学习信号</h1>
-<p class="lead">目标：不用公式也能讲清楚 GRPO 在做什么，并理解“为什么有些训练数据完全没用”。</p>
+<p class="lead">目标：不用公式也能讲清楚 GRPO 在做什么，并理解“为什么有些训练数据完全没用”。本课先手算一组优势，再看优势怎样变成每个 token 的权重、怎样改变模型的概率；然后算出“全对或全错的组”在什么情况下有多常见，以及组大小 G 该怎么选。clip、KL 和各种变体留给第 06 课。</p>
 
 <h2>1. 核心思想</h2>
 <p>对同一个任务采样 G 条轨迹（一组），每条得到奖励 r<sub>i</sub>。把组内平均奖励当作“及格线”：</p>
 <pre><code>A_i = (r_i − 组内平均) / 组内标准差</code></pre>
 <p>A<sub>i</sub> 叫<b>优势</b>。A 为正，就提高这条轨迹里模型生成的 token 的概率；A 为负就降低。它不需要单独训练一个“价值网络”来估计及格线（PPO 需要），省显存、实现简单，因此成为 Agentic RL 的默认算法。Amazon Bedrock RFT 和 SageMaker AI 多轮 RL 底层用的都是 GRPO。</p>
 
-<h2>2. 动手：拖动 8 条轨迹的奖励</h2>
+<h2>2. 一步一步算一组优势</h2>
+<p>符号：G 是组里的轨迹数，i 是第几条（1 到 G），r<sub>i</sub> 是第 i 条的奖励。组均值 mean = (r<sub>1</sub> + … + r<sub>G</sub>) / G；组标准差 std = √( Σ(r<sub>i</sub> − mean)² / G )，它衡量组内奖励差别有多大。下面 4 条轨迹，奖励可以改；默认是一条全对（1）、一条对了一半（0.5，部分分）、两条失败（0）。</p>
+<div class="card">
+<div class="grid g4 ctl" id="ar-in"></div>
+<div id="ar-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认情况：均值 0.375，标准差 0.415。得 0.5 分的那条虽然没全对，但高于组均值，优势是 <b>+0.30</b>，它的 token 概率也会被提高，只是幅度小。两条失败的各是 −0.90。四个优势加起来是 0：一组里有升就有降。</div>
+<p class="mut">这里用总体标准差（除以 G），与第 06 课一致；有的实现除以 G − 1。标准差为 0 时分母是 0，实现里会加一个很小的数（下面的拖动组件加的是 10<sup>−6</sup>），这时优势全为 0。</p>
+
+<h3>2.1 优势怎样变成每个 token 的权重</h3>
+<p>一条轨迹里模型生成了 |o<sub>i</sub>| 个 token（只数 loss mask 为 1 的，工具返回不算）。GRPO 原始写法里，这条轨迹的<b>每一个</b>生成 token 都拿同一个优势 A<sub>i</sub>，损失先在轨迹内对 token 求平均，再对 G 条轨迹求平均：</p>
+<pre><code>L = −(1/G) · Σ_i (1/|o_i|) · Σ_t A_i · log π_θ(o_i,t | 上文)
+每个 token 的权重 = A_i / (G · |o_i|)</code></pre>
+<p>上表最后一列就是这个权重（假设 4 条轨迹的生成长度分别是表里的 |o<sub>i</sub>|，可改）。注意同样的优势下，<b>越短的轨迹每个 token 权重越大</b>。这正是 Dr.GRPO 指出的长度偏差：长的错误回答每个 token 被罚得更轻。DAPO 和 Dr.GRPO 改了这个归一化，见<a href="06-advanced-algorithms.html">第 06 课第 4 节</a>。上面的式子省略了重要性比率和 clip（第 06 课第 1、3 节），在“刚采样完、还没更新”时它们不起作用。</p>
+
+<h2>3. 动手：拖动 8 条轨迹的奖励</h2>
 <div class="card">
 <div class="flex">
 <button class="btn on" id="g-std">GRPO（除以标准差）</button>
@@ -37,19 +63,91 @@
 <div class="tip"><b>建议依次点这几个预设，观察：</b>
 <ol>
 <li><b>只有 1 条成功</b>：那条轨迹的优势很大，模型会被强烈推向它。RL 能从稀少的成功中学习，靠的就是这个。</li>
-<li><b>全部成功 / 全部失败</b>：所有优势都是 0，这一组数据<b>没有任何梯度</b>，白白消耗算力。任务太简单或太难都会这样，所以 Bedrock 文档建议基线成功率在 5%–95% 之间才适合做 RL。</li>
+<li><b>全部成功 / 全部失败</b>：所有优势都是 0，这一组数据<b>没有任何梯度</b>，白白消耗算力。任务太简单或太难都会这样。Bedrock RFT 文档的建议是：基线奖励一直为 0 时先做 SFT，高于 95% 时可能不需要 RFT。第 4 节算这种组有多常见。</li>
 <li><b>切换到 Dr.GRPO</b>：除以标准差会放大“几乎全对”的组里的微小差异。Dr.GRPO 认为这带来了难度偏差，因此去掉了这一步。</li>
 </ol></div>
 
-<h2>3. 为什么要“一组”</h2>
-<p>单独一条轨迹得了 0.6 分，你不知道它算好还是算坏：任务可能很简单（大家都 0.9），也可能很难（大家都 0.1）。同一任务的多条轨迹放在一起比较，就自动消除了任务难度的影响。代价是每个任务要跑 G 次，成本乘以 G。</p>
+<h2>4. 全对、全错的组有多常见</h2>
+<p>假设奖励只有 0 和 1，某个任务上模型每次成功的概率是 p，G 次采样互相独立。那么：</p>
+<pre><code>P(G 条全失败) = (1 − p)^G
+P(G 条全成功) = p^G
+P(这一组没有信号) = (1 − p)^G + p^G</code></pre>
+<p>例如 p = 0.1、G = 8：0.9<sup>8</sup> ≈ 0.430，0.1<sup>8</sup> 小到可以忽略，约 43% 的组白跑。拖动下面的滑块，看这个比例怎样随 p 和 G 变化。</p>
+<div class="card">
+<div class="grid g3">
+<div><label class="sl">成功率 p = <b id="v-zv-p">0.10</b></label><input type="range" id="zv-p" min="0.01" max="0.99" step="0.01" value="0.1"></div>
+<div><label class="sl">组大小 G = <b id="v-zv-G">8</b></label><input type="range" id="zv-G" min="2" max="64" step="1" value="8"></div>
+<div><label class="sl">每步任务数 B</label><input type="number" id="zv-B" min="1" step="1" value="128"></div>
+</div>
+<div class="grid g2" style="margin-top:8px">
+<div><div class="mut" style="font-size:13px">没有信号的组的比例随 p 的变化（实线：当前 G；虚线：G = 4 和 G = 16 作对照；圆点：当前 p）</div><svg class="plot" id="zv-svg" viewBox="0 0 320 190" preserveAspectRatio="none"></svg></div>
+<div id="zv-out" class="res"></div>
+</div>
+</div>
+<div class="note"><b>这个公式是乐观估计。</b>它假设每个任务的成功率都是同一个 p。真实任务池里难度不一：有些题模型几乎总能做对（p 接近 1），有些几乎总做不对（p 接近 0），这些题的组几乎每次都没有信号，实际白跑的比例通常更高。<a href="11-lab-bedrock-rft.html">第 11 课第 5.1 节</a>的模拟器可以加入题与题之间的难度差异。对策：筛掉太简单和太难的任务，或者像 DAPO 那样丢掉这种组再补采（动态采样），或者用部分分让奖励不只有 0 和 1。</div>
 
+<h2>5. 优势怎样改变模型的概率</h2>
+<p>用一个最小的例子看一次更新到底做了什么。假设某道题只有三种可能的回答：甲、乙、丙。模型给每种回答一个分数 z（logit），概率是 softmax：π<sub>k</sub> = exp(z<sub>k</sub>) / Σ<sub>j</sub> exp(z<sub>j</sub>)。这里把一整条回答当作一个动作，并且直接把 z 当作参数，这是为了能手算的简化；真实模型里每个 token 都有自己的 softmax，参数是网络权重。</p>
+<p><b>更新规则（策略梯度）：</b>目标是让 (1/G) Σ<sub>i</sub> A<sub>i</sub> · log π(第 i 条回答) 变大。对 softmax 求导，log π<sub>i</sub> 对 z<sub>j</sub> 的导数是 1[i = j] − π<sub>j</sub>（1[i = j] 在 i 等于 j 时为 1，否则为 0）。假设这一组 G = 3 条恰好甲、乙、丙各采到一次，梯度上升一步（学习率 η）就是：</p>
+<pre><code>z_j ← z_j + η · (1/G) · Σ_i A_i · (1[i = j] − π_j)
+    = z_j + η · (A_j − π_j · Σ_i A_i) / G
+    = z_j + η · A_j / G          # GRPO 的优势之和为 0，第二项消失</code></pre>
+<div class="card">
+<div class="grid g4 ctl">
+<div><label>甲的奖励 r = <b id="v-pg-r0">1.00</b></label><input type="range" id="pg-r0" min="0" max="1" step="0.05" value="1"></div>
+<div><label>乙的奖励 r = <b id="v-pg-r1">0.00</b></label><input type="range" id="pg-r1" min="0" max="1" step="0.05" value="0"></div>
+<div><label>丙的奖励 r = <b id="v-pg-r2">0.00</b></label><input type="range" id="pg-r2" min="0" max="1" step="0.05" value="0"></div>
+<div><label>学习率 η = <b id="v-pg-lr">1.00</b></label><input type="range" id="pg-lr" min="0.1" max="3" step="0.1" value="1"></div>
+</div>
+<div class="flex" style="margin-top:6px"><span class="mut">更新前的 logit：</span><button class="btn on" id="pg-uni">三者相同 z = (0, 0, 0)</button><button class="btn" id="pg-rare">甲很少被选中 z = (−1, 1, 1)</button>
+<button class="btn" id="pg-step">再更新一步</button><button class="btn" id="pg-reset">重新开始（只更新 1 步）</button></div>
+<div id="pg-bars" style="margin-top:8px"></div>
+<div id="pg-out" class="res" style="margin-top:6px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认：甲答对（r = 1），乙、丙答错。优势 A = (+1.41, −0.71, −0.71)，η = 1、G = 3 时 z 变成 (+0.47, −0.24, −0.24)，甲的概率从 33.3% 升到 50.3%。切到“甲很少被选中”：z 的变化量完全一样，但甲的概率只从 6.3% 升到 12.1%。在真实采样里，概率 6.3% 的回答 8 次采样里一次都没出现的概率是 (1 − 0.063)<sup>8</sup> ≈ 59%，没被采到就拿不到任何奖励，这就是第 4 节“全失败的组”的来源，也是 RL 被认为主要在放大基座已有能力的原因之一（第 01b 课第 5 节）。</div>
+<p class="mut">把奖励改成 (1, 1, 0)：甲和乙的优势都是 +0.71，丙是 −1.41，两个正确答案一起被提高。把三个奖励设成相同：优势全为 0，点“再更新一步”概率不变。</p>
+
+<h2>6. 为什么要“一组”，组该多大</h2>
+<p>单独一条轨迹得了 0.6 分，你不知道它算好还是算坏：任务可能很简单（大家都 0.9），也可能很难（大家都 0.1）。同一任务的多条轨迹放在一起比较，就自动消除了任务难度的影响。代价是每个任务要跑 G 次，成本乘以 G。</p>
+<p><b>G 怎么选：</b>每步能跑的轨迹总数 N = B × G 通常由算力定死。G 大，每组更不容易全对全错，组均值这条“及格线”也更准（二值奖励下组均值的标准差是 √(p(1−p)/G)）；但 B 变小，每步见到的不同任务变少。下表固定 N，比较不同的 G：</p>
+<div class="card">
+<div class="grid g2">
+<div><label class="sl">每步轨迹总数 N = B × G</label><input type="number" id="gs-N" min="64" step="64" value="1024"></div>
+<div><label class="sl">任务成功率 p = <b id="v-gs-p">0.10</b></label><input type="range" id="gs-p" min="0.01" max="0.99" step="0.01" value="0.1"></div>
+</div>
+<div id="gs-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<p>公开的取值：DeepSeekMath 每道题采样 64 条；DeepSeek-R1 每道题 16 条、每步 32 道题；SageMaker AI 多轮 RL 默认 group_size 8；AgentCore RL Toolkit 的 τ²-Bench 实验每个任务 16 条 rollout。Wordle 博客在训练停滞后，把“比默认 8 更多的 rollout”列为下一步要试的办法之一。经验上：任务成功率接近 0 或 1 时，加大 G 比加大 B 更划算；成功率在中间时，G = 8 左右就很少出现零方差组，多出来的算力更适合换成更多不同的任务。</p>
+<p>GRPO 完整目标里还有重要性比率、clip 和 KL 项，以及 DAPO、Dr.GRPO、GSPO 等变体各改了哪一项，见<a href="06-advanced-algorithms.html">第 06 课</a>。</p>
+
+<h2>7. 小测验</h2>
 <div class="quiz" data-answer="0"><b>某任务的 8 条轨迹奖励全是 1.0，这组数据对训练有什么贡献？</b><br>
 <button class="btn opt">A. 没有贡献，优势全为 0</button><button class="btn opt">B. 贡献很大，因为全部成功</button>
 <div class="qe">正确答案 A。GRPO 只从组内差异中学习。DAPO 的“动态采样”就是把这种组丢掉，换新的任务来采样。</div></div>
 <div class="quiz" data-answer="2"><b>如果你的任务基线成功率是 0%，最合理的第一步是？</b><br>
 <button class="btn opt">A. 加大 group size 到 64</button><button class="btn opt">B. 直接开始 GRPO 训练</button><button class="btn opt">C. 先做 SFT 冷启动，或把任务拆简单</button>
 <div class="qe">正确答案 C。全部失败时没有梯度，GRPO 学不到东西。先用示范轨迹做 SFT 或设计课程式的简单任务，让成功率进入可学习区间。</div></div>
+<div class="quiz" data-answer="1"><b>一组 4 条轨迹的奖励是 1、0.5、0、0。得 0.5 分的那条，优势是正还是负？</b><br>
+<button class="btn opt">A. 负的，因为它没有全对</button>
+<button class="btn opt">B. 正的，约 +0.30：组均值是 0.375，0.5 高于均值</button>
+<button class="btn opt">C. 0，因为部分分不参与计算</button>
+<div class="qe">正确答案 B。优势只看相对组均值的高低。(0.5 − 0.375) / 0.415 ≈ +0.30。部分分让“没全对但更接近”的轨迹也能得到正信号，这是第 11 课用按字段给分的原因。</div></div>
+<div class="quiz" data-answer="0"><b>二值奖励，某类任务的成功率约 10%。G = 8 时，大约多少比例的组没有学习信号？G 提到 16 呢？</b><br>
+<button class="btn opt">A. 约 43%；约 18.5%</button>
+<button class="btn opt">B. 约 10%；约 5%</button>
+<button class="btn opt">C. 几乎为 0；几乎为 0</button>
+<div class="qe">正确答案 A。(1 − 0.1)<sup>8</sup> + 0.1<sup>8</sup> ≈ 0.430；(1 − 0.1)<sup>16</sup> + 0.1<sup>16</sup> ≈ 0.185。这是假设所有任务成功率相同时的估计，难度不一时白跑的比例通常更高。</div></div>
+
+<h2>8. 参考资料</h2>
+<ul>
+<li>Shao et al. <a href="https://arxiv.org/abs/2402.03300">DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models</a>（arXiv 2402.03300）。GRPO 的出处：结果监督时把 (r<sub>i</sub> − mean) / std 作为输出中所有 token 的优势；每道题采样 64 条，策略学习率 1e-6，KL 系数 0.04，最大长度 1024，训练批大小 1024。</li>
+<li>DeepSeek-AI. <a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning</a>（arXiv 2501.12948 v2；Nature 645, 633–638）。GRPO；每道题采样 16 条，每步 32 道题（训练批 512），采样温度 1。</li>
+<li>Liu et al. <a href="https://arxiv.org/abs/2503.20783">Understanding R1-Zero-Like Training: A Critical Perspective</a>（arXiv 2503.20783）。Dr.GRPO：长度偏差与难度偏差。</li>
+<li>Yu et al. <a href="https://arxiv.org/abs/2503.14476">DAPO: An Open-Source LLM Reinforcement Learning System at Scale</a>（arXiv 2503.14476）。动态采样：过滤全对或全错的组。</li>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Customize a model with reinforcement fine-tuning in Amazon Bedrock</a>。Bedrock RFT 使用 GRPO；奖励一直为 0 先做 SFT，高于 95% 可能不需要 RFT。2026-11-11 访问。</li>
+<li>AWS 博客：<a href="https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/">Multi-Turn Reinforcement Learning on Amazon SageMaker AI: A hands-on guide</a>。默认 group_size 8；训练停滞时考虑更多 rollout。2026-11-11 访问。</li>
+<li>AgentCore RL Toolkit 项目博客：<a href="https://awslabs.github.io/agentcore-rl-toolkit/blog/data-synthesis-v0/">Growing verifiable training tasks from the environment alone</a>。GRPO + DAPO 式改进，每个任务 16 条 rollout。2026-11-11 访问。</li>
+</ul>
 </main>
 <script src="assets/common.js"></script>
 <script>
@@ -68,5 +166,67 @@ $('#g-stat').innerHTML=`组内平均 <b>${m.toFixed(3)}</b>，标准差 <b>${sd.
 seg([$('#g-std'),$('#g-nostd')],b=>{useStd=b.id==='g-std';draw()});
 $$('[data-preset]').forEach(b=>b.onclick=()=>{G=[...presets[b.dataset.preset]];sliders();draw()});
 sliders();draw();
+
+const fx=(x,d=3)=>{const v=+(+x).toFixed(d);return (v===0?0:v).toFixed(d)};
+const sgn=(x,d=2)=>{const s=fx(x,d);return (+s>0?'+':'')+s};
+
+/* 2. advantage arithmetic */
+const AR={r:[1,0.5,0,0],L:[5,8,4,6]};
+$('#ar-in').innerHTML=AR.r.map((v,i)=>`<div><label>轨迹 ${i+1}：奖励 r<sub>${i+1}</sub></label><input type="number" id="ar-r${i}" min="0" max="1" step="0.1" value="${v}"><label style="margin-top:4px">生成 token 数 |o<sub>${i+1}</sub>|</label><input type="number" id="ar-L${i}" min="1" step="1" value="${AR.L[i]}"></div>`).join('');
+function arDraw(){
+const r=AR.r.map((_,i)=>{const v=+$('#ar-r'+i).value;return Number.isFinite(v)?v:0});
+const L=AR.L.map((_,i)=>{const v=Math.round(+$('#ar-L'+i).value);return Number.isFinite(v)&&v>=1?v:1});
+const n=r.length,m=r.reduce((a,b)=>a+b,0)/n,d=r.map(x=>x-m),sq=d.map(x=>x*x),v=sq.reduce((a,b)=>a+b,0)/n,sd=Math.sqrt(v);
+const zero=sd<1e-9,A=d.map(x=>zero?0:x/sd),w=A.map((a,i)=>a/(n*L[i]));
+let h=`<table class="mini"><tr><th>i</th><th>r<sub>i</sub></th><th>r<sub>i</sub> − mean</th><th>(r<sub>i</sub> − mean)²</th><th>A<sub>i</sub> = (r<sub>i</sub> − mean) / std</th><th>|o<sub>i</sub>|</th><th>每个 token 的权重 A<sub>i</sub> / (G·|o<sub>i</sub>|)</th></tr>`;
+r.forEach((x,i)=>h+=`<tr><td>${i+1}</td><td>${fx(x,2)}</td><td>${sgn(d[i],3)}</td><td>${fx(sq[i],4)}</td><td class="${A[i]>1e-9?'ok':A[i]<-1e-9?'bad':''}"><b>${sgn(A[i],2)}</b></td><td>${L[i]}</td><td>${sgn(w[i],4)}</td></tr>`);
+h+=`</table>① mean = (${r.map(x=>fx(x,2)).join(' + ')}) / ${n} = <b>${fx(m,4)}</b>　② 方差 = (${sq.map(x=>fx(x,4)).join(' + ')}) / ${n} = ${fx(v,4)}　③ std = √${fx(v,4)} = <b>${fx(sd,4)}</b>　④ 优势之和 = ${fx(A.reduce((a,b)=>a+b,0),2)}`;
+if(zero)h+='<br><span class="bad">std = 0：组内奖励完全相同，优势全为 0，这组没有学习信号。</span>';
+$('#ar-out').innerHTML=h}
+AR.r.forEach((_,i)=>{$('#ar-r'+i).oninput=arDraw;$('#ar-L'+i).oninput=arDraw});arDraw();
+
+/* 4. zero-variance fraction */
+const zvf=(p,g)=>Math.pow(1-p,g)+Math.pow(p,g);
+function zvDraw(){const p=+$('#zv-p').value,g=+$('#zv-G').value,Bv=+$('#zv-B').value,B=Number.isFinite(Bv)&&Bv>=1?Math.round(Bv):1;
+$('#v-zv-p').textContent=p.toFixed(2);$('#v-zv-G').textContent=g;
+const W=320,H=190,x0=34,y0=10,pw=W-x0-8,ph=H-y0-24;
+const X=q=>x0+q*pw,Y=f=>y0+(1-f)*ph;
+const path=gg=>{let d='';for(let k=0;k<=100;k++){const q=0.01+k*0.98/100;d+=(k?'L':'M')+X(q).toFixed(1)+','+Y(zvf(q,gg)).toFixed(1)}return d};
+let s=`<line x1="${x0}" y1="${Y(0)}" x2="${W-8}" y2="${Y(0)}" stroke="var(--line)"/><line x1="${x0}" y1="${y0}" x2="${x0}" y2="${Y(0)}" stroke="var(--line)"/>`;
+[0,0.5,1].forEach(f=>s+=`<text x="${x0-4}" y="${Y(f)+4}" text-anchor="end">${f}</text>`);
+[0,0.5,1].forEach(q=>s+=`<text x="${X(q)}" y="${H-8}" text-anchor="middle">p=${q}</text>`);
+[4,16].forEach(gg=>{if(gg!==g)s+=`<path class="cv" d="${path(gg)}" stroke="var(--mut)" stroke-dasharray="4,3" style="stroke-width:1.4"/>`});
+s+=`<path class="cv" d="${path(g)}" stroke="var(--acc)"/><circle cx="${X(p)}" cy="${Y(zvf(p,g))}" r="4.5" fill="var(--warn)"/>`;
+$('#zv-svg').innerHTML=s;
+const f=zvf(p,g),f0=Math.pow(1-p,g),f1=Math.pow(p,g);
+$('#zv-out').innerHTML=`全失败 (1 − p)<sup>G</sup> = <b>${fx(f0,4)}</b><br>全成功 p<sup>G</sup> = <b>${fx(f1,4)}</b><br>没有信号的组：<span class="kpi">${(f*100).toFixed(1)}%</span><br>每步 ${B} 个任务里，平均约 <b>${(B*(1-f)).toFixed(1)}</b> 组有信号，约 <b>${(B*f).toFixed(1)}</b> 组白跑（共 ${B*g} 条轨迹中约 ${(B*g*f).toFixed(0)} 条）。`}
+['#zv-p','#zv-G','#zv-B'].forEach(id=>$(id).oninput=zvDraw);zvDraw();
+
+/* 5. toy 3-answer softmax policy gradient */
+const NAMES=['甲','乙','丙'];
+const INIT={uni:[0,0,0],rare:[-1,1,1]};
+let pgInit='uni',pgZ=[...INIT.uni],pgHist=[];
+const smx=z=>{const m=Math.max(...z),e=z.map(v=>Math.exp(v-m)),s=e.reduce((a,b)=>a+b,0);return e.map(v=>v/s)};
+function pgAdv(){const r=[0,1,2].map(i=>+$('#pg-r'+i).value);const m=r.reduce((a,b)=>a+b,0)/3,sd=Math.sqrt(r.reduce((a,b)=>a+(b-m)**2,0)/3);return{r,m,sd,A:r.map(x=>sd<1e-9?0:(x-m)/sd)}}
+function pgReset(){pgZ=[...INIT[pgInit]];pgHist=[[...pgZ]];pgStep()}
+function pgStep(){const {A}=pgAdv(),lr=+$('#pg-lr').value;pgZ=pgZ.map((z,j)=>z+lr*A[j]/3);pgHist.push([...pgZ]);pgDraw()}
+function pgDraw(){const {r,m,sd,A}=pgAdv(),lr=+$('#pg-lr').value;
+[0,1,2].forEach(i=>$('#v-pg-r'+i).textContent=r[i].toFixed(2));$('#v-pg-lr').textContent=lr.toFixed(2);
+const p0=smx(pgHist[0]),pk=smx(pgHist[pgHist.length-1]),k=pgHist.length-1;
+$('#pg-bars').innerHTML=NAMES.map((n,i)=>`<div class="pb"><span class="lb">${n}（更新前）</span><span class="tr"><span class="fl" style="width:${(p0[i]*100).toFixed(1)}%;background:var(--mut)"></span></span><span class="vl">${(p0[i]*100).toFixed(1)}%</span></div><div class="pb"><span class="lb">${n}（${k} 步后）</span><span class="tr"><span class="fl" style="width:${(pk[i]*100).toFixed(1)}%;background:${A[i]>1e-9?'var(--ok)':A[i]<-1e-9?'var(--bad)':'var(--acc)'}"></span></span><span class="vl">${(pk[i]*100).toFixed(1)}%</span></div>`).join('');
+let h=`组均值 ${fx(m,3)}，std ${fx(sd,3)}，优势 A = (${A.map(a=>sgn(a,2)).join(', ')})，每步 z 的变化 η·A/G = (${A.map(a=>sgn(lr*a/3,3)).join(', ')})。<table class="mini" style="margin-top:6px"><tr><th>第几步</th>${NAMES.map(n=>`<th>z<sub>${n}</sub></th>`).join('')}${NAMES.map(n=>`<th>π<sub>${n}</sub></th>`).join('')}</tr>`;
+pgHist.forEach((z,s)=>{const p=smx(z);h+=`<tr><td>${s}</td>${z.map(v=>`<td>${sgn(v,3)}</td>`).join('')}${p.map(v=>`<td>${(v*100).toFixed(1)}%</td>`).join('')}</tr>`});
+$('#pg-out').innerHTML=h+'</table>'}
+seg([$('#pg-uni'),$('#pg-rare')],b=>{pgInit=b.id==='pg-uni'?'uni':'rare';pgReset()});
+['#pg-r0','#pg-r1','#pg-r2','#pg-lr'].forEach(id=>$(id).oninput=pgReset);
+$('#pg-step').onclick=pgStep;$('#pg-reset').onclick=pgReset;
+pgReset();
+
+/* 6. group size trade-off */
+function gsDraw(){const Nv=+$('#gs-N').value,N=Number.isFinite(Nv)&&Nv>=64?Math.round(Nv):64,p=+$('#gs-p').value;$('#v-gs-p').textContent=p.toFixed(2);
+let h='<table class="mini"><tr><th>G</th><th>每步任务数 B = N / G</th><th>没有信号的组的比例</th><th>有信号的组数</th><th>有信号的轨迹数</th><th>组均值的标准差 √(p(1−p)/G)</th></tr>';
+[2,4,8,16,32,64].forEach(g=>{if(g>N)return;const B=Math.floor(N/g),f=zvf(p,g);h+=`<tr><td>${g}</td><td>${B}</td><td>${(f*100).toFixed(1)}%</td><td>${(B*(1-f)).toFixed(1)}</td><td>${(B*g*(1-f)).toFixed(0)}</td><td>${fx(Math.sqrt(p*(1-p)/g),3)}</td></tr>`});
+$('#gs-out').innerHTML=h+'</table><span class="mut">“有信号的轨迹数”= B × G × (1 − 比例)。G 越大，这个数越接近 N，但每步只覆盖 N / G 个不同任务。</span>'}
+$('#gs-N').oninput=gsDraw;$('#gs-p').oninput=gsDraw;gsDraw();
 </script>
 </body></html>
