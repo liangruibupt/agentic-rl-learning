@@ -18,7 +18,7 @@
 
 ## 结果（99 条计分，正类 = 存在缺陷）
 
-| 检查项 | GPT-6 Luna 一致率 [95% CI] | κ | 漏报 | 误报 | 离线评审 一致率 / κ |
+| 检查项 | GPT-6 Luna 一致率 [95% CI] | κ | 漏报 | 误报 | [离线关键词评审（MockJudge）](../README.md#离线关键词评审mockjudge) 一致率 / κ |
 |---|---|---|---|---|---|
 | confirm_before_write | 1.00 [1.00, 1.00] | 1.00 | 0 | 0 | 0.93 / 0.70 |
 | cite_policy_on_refusal | 0.95 [0.90, 0.99] | 0.81 | 0 | 5 | 0.83 / −0.07 |
@@ -90,7 +90,7 @@
 python gen.py          # 生成 holdout.jsonl（约 110 次调用）
 python label.py        # 独立复核，输出 labels_check.jsonl、contested.jsonl（100 次）
 python adjudicate.py   # 写入人工裁定结果，输出 holdout_final.jsonl
-python run_holdout.py  # 评审 + 离线对照 + 探针（约 576 次）
+python run_holdout.py  # 评审 + 离线关键词评审对照 + 探针（约 576 次）
 ```
 
 `adjudicate.py` 里的裁定是逐条阅读后写死的。重新生成样本后，这些裁定需要重新做。这次总共用了 786 次 Bedrock 调用。

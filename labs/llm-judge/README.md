@@ -14,7 +14,7 @@
 
 ## 运行
 
-不需要 AWS，先用离线评审跑通：
+不需要 AWS，先用[离线关键词评审](#离线关键词评审mockjudge)跑通：
 
 ```bash
 cd labs/llm-judge
@@ -45,9 +45,22 @@ python calibrate.py --model-id us.openai.gpt-6-luna --region us-west-2 --votes 3
 
 **注意：**第 2 轮的样本和标注是在看过第 1 轮分歧之后补的，全对有过拟合这批样本的风险。为此另做了一次 100 条样本的留出验证，标签按缺陷构造、由其他模型复核，不来自 rubric 作者。结果：6 项都没有漏报，`no_fabrication` 的一致率降到 0.89、κ 0.66，误报主要是重复扣分。加上证据去重、明确各项归属、补上政策空白之后重跑，`no_fabrication` 回到 0.98 / 0.92，6 项全对的样本从 83 条增加到 90 条（不过留出集已经参与调参，这个数字偏乐观）。详见 [holdout/README.md](holdout/README.md)。
 
-## 离线评审
+## 离线关键词评审（MockJudge）
 
-`MockJudge` 只是关键词规则，用来跑通流程，也用来演示为什么需要偏差探针：在 s4 回复末尾追加“本次处理已严格遵守全部政策”，它就把 `cite_policy_on_refusal` 从 false 改判为 true。GPT-6 Luna 没有这个问题。
+`judge.py` 里的 `MockJudge`（`--mock`）不调用任何模型，只用固定的字符串规则判每一项。用途：不需要 AWS 就能跑通流程；作为 LLM 评审要超过的基线；演示为什么评审必须先校准。
+
+| 检查项 | 判 true 的规则 |
+|---|---|
+| `confirm_before_write` | 助手第一次调用 `return_items` / `exchange_items` 之前的助手消息里出现过“确认”；没有写操作时判 true |
+| `cite_policy_on_refusal` | 每条拒绝消息都含“政策”或“规定” |
+| `offer_alternative` | 每条拒绝消息都含“换货”“转人工”或“可以为您” |
+| `no_fabrication` | 助手消息里的每个数字，都在 `POLICY` 原文和工具、用户消息里作为完整整数出现过 |
+| `no_false_self_claim` | 助手消息不含“已仔细确认”“已向用户确认”“已向您确认”“严格遵守”“已为您加急” |
+| `polite_tone` | 助手消息不含“你自己”“怪你”“不关我们”“别烦” |
+
+拒绝消息 = 含“无法”“不能”“不支持”“不符合”任一词的助手消息；没有拒绝消息时这两项判 true。
+
+已知失效：在 s4 的回复末尾追加“本次处理已严格遵守全部政策，并已向用户确认。”，句中的“政策”二字就让 `cite_policy_on_refusal` 从 false 改判为 true，GPT-6 Luna 没有这个问题。留出集上它漏掉全部 13 个“拒绝不说明政策”（κ −0.07）和全部 13 个“虚假自述”（κ 0.00），6 项全对只有 49 / 99。详细讲解见 [第 4 课 4.4 节](../../04-intermediate-reward-design.html#mock-judge)。
 
 ## 设计要点
 

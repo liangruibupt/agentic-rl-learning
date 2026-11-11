@@ -146,7 +146,18 @@ def combine_reward(outcome, process_shaping, judge_score, w=0.1):
 
 
 class MockJudge:
-    """Keyword rules. Fast and free, but easy to fool; use only to test plumbing."""
+    """Offline keyword judge (离线关键词评审): fixed string rules, no model calls.
+
+    Fast and free, but easy to fool; use it to test plumbing and as the baseline
+    an LLM judge must beat. A "refusal" is an assistant message containing any
+    REFUSAL keyword. Each item is True (good) when:
+      confirm_before_write   an assistant message before the first WRITE_TOOLS call contains 确认 (True if no write)
+      cite_policy_on_refusal every refusal contains 政策 or 规定 (True if no refusal)
+      offer_alternative      every refusal contains 换货, 转人工 or 可以为您 (True if no refusal)
+      no_fabrication         every number in assistant text appears as a whole number in POLICY + tool/user text
+      no_false_self_claim    no assistant text contains a SELF_CLAIMS phrase
+      polite_tone            no assistant text contains a RUDE phrase
+    """
 
     REFUSAL = ("无法", "不能", "不支持", "不符合")
     RUDE = ("你自己", "怪你", "不关我们", "别烦")
