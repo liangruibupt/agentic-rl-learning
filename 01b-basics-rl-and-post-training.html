@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01b RL 和后训练的关系</title><link rel="stylesheet" href="assets/style.css">
+<style>
+.stage{width:100%;height:auto;max-height:220px}
+.stage .node.mid rect{stroke-dasharray:6,4}
+.stage .sub{font-size:11.5px;fill:var(--mut)}
+.stage .arrow{fill:var(--mut)}
+.mtab{width:auto}
+.mtab td:first-child{white-space:nowrap;color:var(--mut);width:110px}
+.q2{border-collapse:separate;border-spacing:6px;table-layout:fixed}
+.q2 th{background:none;border:none;text-align:center;color:var(--mut);font-weight:normal;font-size:13px}
+.q2 td.cell{border:2px solid var(--line);border-radius:10px;background:var(--panel2);cursor:pointer;padding:10px 12px;font-size:13.5px}
+.q2 td.cell:hover{border-color:var(--acc)}
+.q2 td.cell.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 14%,var(--panel2))}
+.q2 td.cell.grey{border-style:dashed;border-color:var(--warn)}
+.q2 td.cell.grey.on{border-style:solid;border-color:var(--acc)}
+.chip{display:inline-block;padding:4px 10px;margin:3px;border-radius:99px;font-size:13px;border:1px solid var(--line);background:var(--panel2);color:var(--mut);transition:.2s}
+.chip.hi{color:var(--fg);border-color:var(--acc);background:color-mix(in srgb,var(--acc) 22%,var(--panel2));font-weight:600}
+.steps{margin:8px 0 0;padding-left:22px}
+.steps li{margin:3px 0}
+.answer{border:1px solid var(--acc);border-left:5px solid var(--acc);background:color-mix(in srgb,var(--acc) 10%,var(--panel));border-radius:10px;padding:14px 18px;margin:14px 0}
+</style></head>
+<body><main>
+<span class="badge lv-basic">基础班 · 01b</span>
+<h1>RL 和后训练的关系</h1>
+<p class="lead">目标：分清“后训练”和“强化学习”这两个常被混用的词。后训练是一个<b>阶段</b>，RL 是一种<b>学习方式</b>，两者不在同一个维度上。学完能用一段话给客户讲清楚，并知道 Agentic RL 在整条流水线里的位置。</p>
+
+<div class="tip"><b>一句话结论：</b>预训练之后、用来塑造模型行为的所有训练，统称后训练。RL 是让模型自己生成输出、按奖励信号更新的那一类方法，和 SFT、DPO、蒸馏等并列；它也是近两年推理模型和 Agent 模型能力提升的主要来源之一。反过来，后训练不等于 RL：Llama 3 的主流程就基本没有用在线 RL。</div>
+
+<h2>1. 模型训练的三个阶段</h2>
+<p>点击下面的阶段，看它做什么、用什么数据、有什么例子。</p>
+<div class="card">
+<svg class="stage clk" id="stage-svg" viewBox="0 0 760 150" role="group" aria-label="训练阶段图">
+<g class="node" data-k="pre" tabindex="0"><rect x="10" y="40" width="210" height="70" rx="12"/><text x="115" y="70" text-anchor="middle">预训练</text><text class="sub" x="115" y="92" text-anchor="middle">pre-training · 获得知识</text></g>
+<path class="edge" d="M220 75 L265 75"/><polygon class="arrow" points="265,69 277,75 265,81"/>
+<g class="node mid" data-k="mid" tabindex="0"><rect x="278" y="40" width="210" height="70" rx="12"/><text x="383" y="70" text-anchor="middle">中期训练</text><text class="sub" x="383" y="92" text-anchor="middle">mid-training · 边界不统一</text></g>
+<path class="edge" d="M488 75 L533 75"/><polygon class="arrow" points="533,69 545,75 533,81"/>
+<g class="node" data-k="post" tabindex="0"><rect x="546" y="40" width="204" height="70" rx="12"/><text x="648" y="70" text-anchor="middle">后训练</text><text class="sub" x="648" y="92" text-anchor="middle">post-training · 塑造行为</text></g>
+<text class="sub" x="648" y="28" text-anchor="middle">RL 在这里（和 SFT、DPO、蒸馏并列）</text>
+<text class="sub" x="383" y="134" text-anchor="middle">虚线框：有的团队算作预训练尾声，有的单独列出</text>
+</svg>
+<div id="stage-out" class="res"></div>
+</div>
+<div class="note">“mid-training” 这个词在业界用法不统一。上图是常见用法，不是标准定义。Llama 3 论文给后训练的定义很宽：预训练之外的所有模型训练都算后训练。</div>
+
+<h2>2. 核心区别：从自己的样本学，还是从固定数据学</h2>
+<p>RL 的训练循环是：当前模型（policy）对一个 prompt 生成一个或多个回答（rollout），奖励模型或验证器打分，按分数提高高分回答的概率、降低低分回答的概率（PPO、GRPO 都是这个思路），再用更新后的模型继续生成。关键在于<b>训练数据是模型自己当下生成的</b>。SFT 和 DPO 则用事先准备好的固定数据。</p>
+<p>切换下面的方法，比较数据从哪来、是否在线、奖励从哪来。</p>
+<div class="card">
+<div class="flex" id="m-btns"></div>
+<div id="m-flow" style="margin-top:10px"></div>
+<div id="m-out" class="res" style="margin-top:8px"></div>
+</div>
+<h3>为什么 DPO 常被称为 “RL-free”，但又和 RLHF 有关</h3>
+<p>DPO 论文（Rafailov et al., 2023）从 RLHF 的目标函数出发：最大化奖励，同时用 KL 约束不偏离参考模型太远。作者推导出这个目标的最优解可以写成闭式，于是把“先训练奖励模型、再跑 PPO”换成了一个直接在偏好对上算的损失。论文标题 “Your Language Model is Secretly a Reward Model” 就是这个意思。</p>
+<ul>
+<li><b>目标上</b>，DPO 和 RLHF 优化的是同一个东西。</li>
+<li><b>过程上</b>，DPO 没有采样、没有奖励模型、没有探索，就是监督学习式的训练。这是它被叫作 “RL-free” 的原因。</li>
+<li>DPO 的局限也来自这里：模型只能在已有数据覆盖的回答之间调整偏好，学不到数据里没有的新行为。</li>
+</ul>
+
+<h2>3. 在线 / 离线，同策略 / 异策略</h2>
+<p><b>Online（在线）</b>：训练过程中持续生成新样本并打分。<b>Offline（离线）</b>：训练前数据已固定。<b>On-policy（同策略）</b>：用于更新的样本来自当前模型。<b>Off-policy（异策略）</b>：样本来自别的模型或旧版本模型。这两组概念不完全等价，中间有灰色地带。点击格子看例子，虚线框是灰色地带。</p>
+<div class="card">
+<table class="q2" id="q2">
+<tr><th></th><th>On-policy（样本来自当前模型）</th><th>Off-policy（样本来自别的或旧的模型）</th></tr>
+<tr><th>Online<br>（训练中持续生成）</th><td class="cell" data-k="on-on"><b>标准 GRPO、PPO、RLVR</b></td><td class="cell grey" data-k="on-off"><b>复用旧 rollout</b><br>Qwen3 Reasoning RL</td></tr>
+<tr><th>Offline<br>（数据事先固定）</th><td class="cell grey" data-k="off-on"><b>迭代式 DPO</b><br>Llama 3、Tulu 3 的做法</td><td class="cell" data-k="off-off"><b>标准 DPO、SFT</b></td></tr>
+</table>
+<div id="q2-out" class="res" style="margin-top:6px"></div>
+</div>
+
+<h2>4. 公开模型的后训练流水线</h2>
+<p>通用顺序大致是：SFT（冷启动 / 格式）→ 偏好优化或 RL → 拒绝采样 + SFT 或蒸馏 → 再一轮 RL，后面几步可能循环多轮；安全对齐有的放最后单独做，更多是混在 SFT 数据和 RL 奖励里贯穿全程。选择一个模型，看它实际用了哪些步骤（均已核对原论文）。</p>
+<div class="card">
+<div class="flex" id="pl-btns"></div>
+<div id="pl-chips" style="margin-top:10px"></div>
+<div id="pl-out" class="res" style="margin-top:6px"></div>
+</div>
+<p><b>为什么是这个顺序：</b></p>
+<ul>
+<li><b>SFT 放在 RL 前面：</b>基座模型不会按指令回答，也不会输出固定格式。RL 如果一开始几乎拿不到正奖励，就学不动。SFT 先把输出格式和基本行为稳定下来。“SFT Memorizes, RL Generalizes” 论文也发现，SFT 稳定输出格式后，后续 RL 才能拿到收益。</li>
+<li><b>RL 之后常接拒绝采样 + SFT：</b>RL 产出的模型在某个领域强了，但可能牺牲了其他能力或可读性。用它采样、筛选好答案，和其他领域数据混合后重新 SFT，可以把收益固化下来并扩展到通用场景。</li>
+</ul>
+<p>从这些案例能看出两个趋势：2022–2024 年，RL 在后训练中主要用于“对齐偏好”（RLHF），而且有团队（Llama 3）用 DPO 替代了它；2024 年底以后，RLVR 成为推理能力的主要来源，RL 的分量明显变重，Qwen3 的 General RL 已经包含真实环境里的多轮工具调用。</p>
+
+<h2>5. RL 相比 SFT 多给了什么</h2>
+<div class="grid g3">
+<div class="card"><b>可以超出示范数据</b><br>SFT 的上限大致是训练数据的质量。RL 让模型自己尝试，某次尝试拿到高分就会被强化。R1-Zero 在没有任何人工推理示范的情况下，出现了自我检查、反思、长 CoT 等行为。</div>
+<div class="card"><b>可以优化不可微、序列级的目标</b><br>“代码能否通过测试”“最终答案对不对”“整个任务是否完成”都无法直接对 token 求梯度。SFT 的损失是逐 token 的交叉熵；RL 只需要一个对整条输出打的分数。</div>
+<div class="card"><b>没有标准答案轨迹也能学</b><br>很多 Agent 任务没有唯一正确的操作序列，只能判断最终成没成功。SFT 需要标注轨迹，RL 只需要结果。SageMaker 多轮 RL 博客用的就是这个理由。</div>
+</div>
+<h3>开放问题：RL 能不能带来基座没有的新能力</h3>
+<p>泛化可能更好，但目前没有定论。两篇常被引用的论文结论方向不同：</p>
+<div class="grid g2">
+<div class="card"><span class="tag">支持 RL 泛化更好</span><br><b>Chu et al.，arXiv 2501.17161</b>（“SFT Memorizes, RL Generalizes”）<br>在卡牌算术游戏 GeneralPoints 和导航环境 V-IRL 上比较，发现基于结果奖励的 RL 对未见过的规则和视觉变体泛化更好，SFT 倾向于记住训练数据。<br><span class="mut">注意：这是在特定合成任务上的结论；同一篇论文也强调 SFT 对 RL 是必要的。</span></div>
+<div class="card"><span class="tag">认为 RLVR 主要是“锐化”</span><br><b>Yue et al.，arXiv 2504.13837</b>（NeurIPS 2025 Oral）<br>用大 k 的 pass@k 测试发现：RLVR 模型在 k=1 时胜过基座，但 k 很大时基座反而更高。解释是 RLVR 主要把基座已有的正确路径变得更容易采样到，没有引出全新的推理模式；蒸馏则能从老师那里引入新模式。<br><span class="mut">注意：作者也指出，持续扩大 RL 规模、多轮 Agent-环境交互可能改变这个结论。</span></div>
+</div>
+<p>两篇论文测的东西不一样：一个看分布外泛化，一个看能力边界（覆盖率）。向客户介绍时，“RL 能否在基座能力之外创造新能力”应作为争论中的问题，不要当成已知结论。</p>
+
+<h2>6. 成本和风险，以及 Agentic RL 的位置</h2>
+<table>
+<tr><th>风险</th><th>说明</th></tr>
+<tr><td>奖励投机（reward hacking）</td><td>模型学会钻奖励的空子，而不是真正完成任务。例如奖励模型偏爱长回答，模型就变得啰嗦。DeepSeek-R1 论文说没用过程奖励模型（PRM），一个原因就是引入基于模型的奖励必然带来 reward hacking。规则验证器也可能被钻空子（如只检查格式、测试覆盖不全）。第 04 课复现了一个真实案例</td></tr>
+<tr><td>训练不稳定</td><td>PPO 超参敏感，容易崩溃或熵塌缩（输出多样性消失）。Llama 3 因此没用 PPO；Qwen3 专门控制熵来保持稳定</td></tr>
+<tr><td>计算成本高</td><td>每一步都要生成多个 rollout，推理开销往往大于梯度更新。Agent 场景还要跑真实环境（代码执行、API 调用），更慢。R1 论文提到软件工程任务评估时间太长，没有在这类任务上大规模做 RL</td></tr>
+<tr><td>能力回退（alignment tax）</td><td>对某个目标优化后，其他能力下降。Qwen3 报告显示：思考模式融合和 General RL 两个阶段之后，AIME'24 和 LiveCodeBench 分数略有下降，团队选择接受这个代价换取通用性</td></tr>
+<tr><td>需要验证器和环境</td><td>RLVR 只适用于结果可自动判断的任务。开放式任务要依赖奖励模型或 LLM 评审，又回到 reward hacking 风险。搭建可靠的环境和评分函数往往是 RL 项目中最费工的部分</td></tr>
+<tr><td>小模型收益有限</td><td>DeepSeek-R1 和 Qwen3 都报告：对小模型，从大模型蒸馏比直接 RL 更划算</td></tr>
+</table>
+
+<h3>Agentic RL：RLVR 从单轮扩展到多轮工具环境</h3>
+<table>
+<tr><th></th><th>单轮 RLVR / RFT</th><th>Agentic（多轮）RL</th></tr>
+<tr><td>一次 rollout</td><td>prompt → 一个完整回答</td><td>prompt → 思考 → 调工具 → 看环境返回 → 再思考 → …… → 结束</td></tr>
+<tr><td>奖励</td><td>对最终回答打分</td><td>通常对整条轨迹的结果打分（任务是否完成），也可以加中间步骤奖励</td></tr>
+<tr><td>难点</td><td>验证器设计</td><td>信用分配（第 3 步的决定如何对应最终结果）、环境搭建与并发、长轨迹的成本</td></tr>
+</table>
+<p>和课程其他内容的对应关系：</p>
+<ul>
+<li><b>SFT</b>：给 Agent 冷启动，让它学会工具调用格式（见 <a href="05-intermediate-agentic-techniques.html">第 05 课</a>）。</li>
+<li><b>GRPO</b>：一个 prompt 采样一组 rollout，用组内相对分数算优势，不需要价值模型（见 <a href="03-basics-grpo.html">第 03 课</a>）。Bedrock RFT、SageMaker AI 多轮 RL、Qwen3、DeepSeek-R1 都用它。</li>
+<li><b>RFT</b>：在 AWS 语境里指“用奖励函数做强化微调”，即托管版的 RLVR / RLAIF。</li>
+<li><b>RLHF</b>：Agentic RL 的奖励也可以来自奖励模型或 LLM 评审，原理与 RLHF 相同。</li>
+</ul>
+<div class="grid g2">
+<div class="card"><b>Amazon Bedrock RFT</b>（单次回答打分）<br>每个 prompt 生成多个回答，由 Lambda 或模型评审打分，用 GRPO 训练；支持 Nova 2 Lite、gpt-oss-20B、Qwen3 32B。文档描述的训练循环是对单个回答打分，没有描述与外部环境的多轮交互。<span class="mut">文档的适用场景里提到了 multi-turn problem solving，具体支持到什么程度本课没有核实。</span><br>动手：<a href="11-lab-bedrock-rft.html">第 11 课 实操：Bedrock RFT</a></div>
+<div class="card"><b>Amazon SageMaker AI 多轮 RL（MTRL）</b>（Agent 多步任务）<br>2026 年 6 月发布。Agent 部署在 AgentCore 或自建基础设施上，训练任务每次 rollout 调用 Agent，Agent 多轮调用正在训练的模型并在回合结束时返回一个奖励，用 GRPO 更新 LoRA。官方 Wordle 示例中，gpt-oss-20b 解题率在默认推理强度下从 61% 升到 84%，训练 token 费用约 339 美元。<br>实验设计：<a href="10-aws-experiment.html">第 10 课 AWS 实验设计</a></div>
+</div>
+
+<h2>7. 方法对比与客户版回答</h2>
+<table>
+<tr><th>方法</th><th>数据</th><th>在线？</th><th>用奖励模型 / 验证器？</th><th>典型目标</th></tr>
+<tr><td>SFT / 指令微调</td><td>固定的 (prompt, 答案)</td><td>否</td><td>否</td><td>学会格式、指令遵循、冷启动</td></tr>
+<tr><td>拒绝采样 + SFT</td><td>模型自己采样后按分数筛选</td><td>半在线（按轮次）</td><td>是（用于筛选）</td><td>把好行为固化，扩展数据</td></tr>
+<tr><td>蒸馏</td><td>老师模型的输出或 logits</td><td>离线；on-policy 蒸馏是学生生成、老师打分</td><td>否（老师即信号）</td><td>把大模型能力转移到小模型</td></tr>
+<tr><td>DPO 及变体（IPO、SimPO 等）</td><td>固定的 (prompt, 好, 差)</td><td>否（迭代式 DPO 按轮次更新数据）</td><td>训练时不用；构造偏好对时可能用</td><td>偏好对齐，成本低</td></tr>
+<tr><td>RLHF（PPO）</td><td>prompt + 实时 rollout</td><td>是</td><td>奖励模型（来自人类偏好）</td><td>有用性、无害性、风格</td></tr>
+<tr><td>RLAIF</td><td>prompt + 实时 rollout</td><td>是</td><td>AI 评审 / AI 训练的奖励模型</td><td>降低人工标注成本的偏好对齐</td></tr>
+<tr><td>RLVR（GRPO / PPO）</td><td>prompt + 验证器 + 实时 rollout</td><td>是</td><td>程序验证器</td><td>数学、代码、精确指令遵循、推理</td></tr>
+<tr><td>Agentic / 多轮 RL</td><td>任务 + 交互环境 + 实时多步 rollout</td><td>是</td><td>环境结果 / 验证器 / 评审</td><td>工具使用、长程任务完成率</td></tr>
+<tr><td>模型合并</td><td>多个检查点的权重</td><td>不训练</td><td>否</td><td>合并不同能力、降低回退</td></tr>
+</table>
+<p class="mut">安全调优（拒答、无害性训练）不是单独一类方法，可以用 SFT、DPO 或 RL 实现。</p>
+
+<div class="answer"><b>可以直接讲给客户的一段话</b><br>
+后训练是指预训练完成之后、让模型“会用、好用、安全”的所有训练步骤，强化学习（RL）是其中的一类方法。SFT 和 DPO 这类方法让模型模仿或比较一批固定数据；RL 则让模型自己作答，再按奖励打分并更新，所以它能学到训练数据里没有的解法，也能直接优化“代码是否跑通”“任务是否完成”这类无法逐字标注的目标。过去几年的公开做法通常是先用 SFT 打底，再用偏好优化或 RL 提升，最后用拒绝采样或蒸馏把成果固化；DeepSeek-R1、Qwen3 这类推理模型的主要提升来自基于可验证奖励的 RL。RL 的代价是需要可靠的评分函数和环境、计算量更大、可能出现模型钻奖励空子的情况，而且学界对“RL 能否带来基座模型没有的新能力”还有争论。对企业来说，如果任务的结果能自动判断对错，可以考虑 Bedrock 的强化微调（单次回答打分）或 SageMaker AI 的多轮 RL（Agent 多步任务）；如果只是让模型学会某种格式或风格，SFT 往往更便宜也更稳。</div>
+
+<h2>8. 小测验</h2>
+<div class="quiz" data-answer="1"><b>DPO 训练时会不会让模型实时生成回答再打分？</b><br>
+<button class="btn opt">A. 会，它和 PPO 一样每步采样，只是不用价值网络</button>
+<button class="btn opt">B. 不会，它直接在事先收集的 (prompt, 好回答, 差回答) 上计算损失，不需要奖励模型</button>
+<button class="btn opt">C. 会，它先训练奖励模型，再用奖励模型给新回答打分</button>
+<div class="qe">正确答案 B。DPO 的目标和 RLHF 相同，但把“训练奖励模型 + PPO”换成了闭式推导出的偏好损失，训练过程里没有采样和探索，所以常被叫作 “RL-free”。迭代式 DPO 会在每轮之间用最新模型重新生成数据，但每一轮内部仍是离线的。</div></div>
+<div class="quiz" data-answer="2"><b>Llama 3 的后训练主流程是什么？</b><br>
+<button class="btn opt">A. SFT → 奖励模型 → PPO，和 InstructGPT 一样</button>
+<button class="btn opt">B. 跳过 SFT，直接在基座上做大规模 GRPO</button>
+<button class="btn opt">C. 先训练奖励模型，再做六轮“SFT（含拒绝采样数据）→ DPO”，每轮用最新模型生成新数据</button>
+<div class="qe">正确答案 C。Llama 3 明确选择了 SFT + 拒绝采样 + DPO，而不是 PPO，理由是 PPO 不稳定、难扩展，DPO 计算更少。这说明后训练不等于 RL。B 是 DeepSeek-R1-Zero 的做法。</div></div>
+<div class="quiz" data-answer="0"><b>客户只想让模型按公司模板输出固定格式的报告，有大量现成的示范报告。最合适的起点是？</b><br>
+<button class="btn opt">A. SFT</button>
+<button class="btn opt">B. Agentic RL</button>
+<button class="btn opt">C. 先搭一个多轮工具环境再做 RLVR</button>
+<div class="qe">正确答案 A。目标是格式和风格，又有现成示范，SFT 往往更便宜也更稳。RL 的优势在于没有标准答案、但结果能自动判断的任务。</div></div>
+<div class="quiz" data-answer="1"><b>Yue et al.（2504.13837）用大 k 的 pass@k 比较 RLVR 模型和基座，发现了什么？</b><br>
+<button class="btn opt">A. 所有 k 下 RLVR 模型都更高，说明 RL 创造了新的推理能力</button>
+<button class="btn opt">B. k=1 时 RLVR 模型更高，k 很大时基座反而更高；作者认为 RLVR 主要是让已有的正确路径更容易被采样到</button>
+<button class="btn opt">C. 两者在所有 k 下完全一样</button>
+<div class="qe">正确答案 B。这和 Chu et al.（2501.17161）发现 RL 分布外泛化更好并不直接矛盾：一个测能力边界（覆盖率），一个测分布外泛化。作者也说扩大 RL 规模、多轮交互可能改变结论，所以这仍是开放问题。</div></div>
+
+<h2>9. 参考资料</h2>
+<ul>
+<li>Ouyang et al., 2022. <a href="https://arxiv.org/abs/2203.02155">Training language models to follow instructions with human feedback</a>（InstructGPT，arXiv 2203.02155）</li>
+<li>Rafailov et al., 2023. <a href="https://arxiv.org/abs/2305.18290">Direct Preference Optimization: Your Language Model is Secretly a Reward Model</a>（arXiv 2305.18290）</li>
+<li>Llama Team, Meta, 2024. <a href="https://arxiv.org/abs/2407.21783">The Llama 3 Herd of Models</a>（arXiv 2407.21783，<a href="https://arxiv.org/html/2407.21783v1">HTML 版</a>）</li>
+<li>Lambert et al., 2024. <a href="https://arxiv.org/abs/2411.15124">Tülu 3: Pushing Frontiers in Open Language Model Post-Training</a>（arXiv 2411.15124）</li>
+<li>DeepSeek-AI, 2025. <a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning</a>（arXiv 2501.12948）</li>
+<li>Qwen Team, 2025. <a href="https://arxiv.org/abs/2505.09388">Qwen3 Technical Report</a>（arXiv 2505.09388）</li>
+<li>Chu et al., 2025. <a href="https://arxiv.org/abs/2501.17161">SFT Memorizes, RL Generalizes: A Comparative Study of Foundation Model Post-training</a>（arXiv 2501.17161）</li>
+<li>Yue et al., 2025. <a href="https://arxiv.org/abs/2504.13837">Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model?</a>（arXiv 2504.13837）</li>
+<li>Gao, Schulman, Hilton, 2022. <a href="https://arxiv.org/abs/2210.10760">Scaling Laws for Reward Model Overoptimization</a>（arXiv 2210.10760）。经 DeepSeek-R1 论文引用找到，未单独阅读全文。</li>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Customize a model with reinforcement fine-tuning in Amazon Bedrock</a></li>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-mtrl.html">SageMaker AI Multi-turn reinforcement learning</a></li>
+<li>AWS 博客：<a href="https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/">Multi-Turn Reinforcement Learning on Amazon SageMaker AI: A hands-on guide</a></li>
+<li>AWS What's New：<a href="https://aws.amazon.com/about-aws/whats-new/2026/06/multi-turn-reinforcement-learning-on-sagemaker-ai/">Amazon SageMaker AI launches multi-turn reinforcement learning</a></li>
+</ul>
+</main>
+<script src="assets/common.js"></script>
+<script>
+/* 1. stage diagram */
+const STAGES={
+pre:{n:'预训练（pre-training）',what:'在海量文本上做下一个 token 预测，获得知识和语言能力',data:'数万亿 token 的网页、代码、书籍',ex:'Qwen3 预训练用了约 36T token'},
+mid:{n:'中期训练（mid-training）',what:'预训练末尾的调整：继续预训练（continued pretraining）、长上下文扩展、退火（annealing，学习率降到 0 并上采样高质量数据）',data:'高质量、领域或长文本数据',ex:'Llama 3 405B 预训练分三步：初始预训练、长上下文预训练、退火',warn:'这个词的用法不统一：有的团队把它算预训练的尾声，有的单独列一个阶段。'},
+post:{n:'后训练（post-training）',what:'塑造行为：听懂指令、对齐偏好、学会推理和用工具、安全',data:'指令数据、偏好对、可验证题目、交互环境',ex:'InstructGPT、Llama 3、Tulu 3、DeepSeek-R1、Qwen3 的流程见第 4 节',methods:['SFT / 指令微调','偏好优化：RLHF（PPO + 奖励模型，在线 RL）、DPO 及变体（离线）','RLVR：用程序验证器代替奖励模型','RLAIF：用 AI 评审代替人工打分','Agentic / 多轮 RL：在工具环境里多步交互，按整条轨迹的结果给奖励','蒸馏：用老师模型的输出训练学生模型','拒绝采样微调：采样多个答案只留好的，再做 SFT','安全调优：可以用 SFT、DPO 或 RL 实现','模型合并：把多个微调后检查点的权重合并']}};
+function stageSel(k){
+$$('#stage-svg .node').forEach(g=>g.classList.toggle('hi',g.dataset.k===k));
+const s=STAGES[k];
+let h=`<table class="mtab"><tr><td>阶段</td><td><b>${s.n}</b></td></tr><tr><td>做什么</td><td>${s.what}</td></tr><tr><td>典型数据</td><td>${s.data}</td></tr><tr><td>例子</td><td>${s.ex}</td></tr></table>`;
+if(s.warn)h+=`<div class="note">${s.warn}</div>`;
+if(s.methods)h+=`<b>后训练包含的方法（不限于 RL）：</b><ul>${s.methods.map(m=>`<li>${m}</li>`).join('')}</ul><span class="mut">RL 是其中<b>按奖励学习</b>的那一族（RLHF-PPO、RLVR、RLAIF、Agentic RL），也可以作为一个步骤嵌入蒸馏或拒绝采样循环。</span>`;
+$('#stage-out').innerHTML=h}
+$$('#stage-svg .node').forEach(g=>{g.addEventListener('click',()=>stageSel(g.dataset.k));g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();stageSel(g.dataset.k)}})});
+stageSel('post');
+
+/* 2. learn from own samples vs fixed data */
+const METHODS=[
+{id:'sft',n:'SFT',flow:[['t-usr','别人写好的答案（人工或老师模型）'],['t-sys','固定数据集'],['t-gen','模型逐 token 模仿']],
+src:'事先准备好的 (prompt, 标准答案)，训练中不变',online:'<span class="bad">否</span>，离线',reward:'没有奖励；损失是逐 token 的交叉熵',can:'输出格式、指令遵循、给 RL 做冷启动',cant:'上限大致是训练数据的质量；学不到示范里没有的解法'},
+{id:'dpo',n:'DPO',flow:[['t-usr','事先收集的偏好对 (好, 差)'],['t-sys','固定数据集'],['t-gen','分类式损失调高好回答的相对概率']],
+src:'事先收集的 (prompt, 好回答, 差回答) 三元组；偏好对可能来自其他模型',online:'<span class="bad">否</span>；迭代式 DPO 每轮用最新模型重新生成数据，轮内仍是离线',reward:'训练时不用奖励模型；目标和 RLHF 相同（KL 约束下最大化奖励），最优解写成闭式后变成偏好损失',can:'偏好对齐，计算量小（Llama 3 选它而不是 PPO 的理由之一）',cant:'只能在已有数据覆盖的回答之间调整偏好，学不到数据里没有的新行为'},
+{id:'ppo',n:'RLHF-PPO',flow:[['t-gen','当前模型实时生成 rollout'],['t-tool','奖励模型打分'],['t-gen','PPO 更新'],['t-sys','用新模型再生成']],
+src:'当前模型对 prompt 实时生成的回答',online:'<span class="ok">是</span>，on-policy',reward:'奖励模型，用人类对输出的排序数据训练（InstructGPT 的三步：SFT → 奖励模型 → PPO）',can:'有用性、无害性、风格；1.3B 的 InstructGPT 在人工评估中优于 175B 的 GPT-3',cant:'奖励模型会被钻空子（reward hacking）；PPO 超参敏感、不稳定，Llama 3 因此没用'},
+{id:'rlvr',n:'RLVR',flow:[['t-gen','当前模型实时生成 rollout'],['t-tool','程序验证器判对错'],['t-gen','GRPO / PPO 更新'],['t-sys','用新模型再生成']],
+src:'当前模型实时生成；题目要有可自动判断的答案',online:'<span class="ok">是</span>',reward:'程序验证器：答案比对、单元测试、格式检查。Tulu 3 首次提出这个名称：答对给固定分（α=10），否则 0',can:'数学、代码、精确指令遵循、推理；R1-Zero 只靠规则奖励，AIME 2024 pass@1 从 15.6% 升到 71.0%',cant:'只适用于结果可自动判断的任务；验证器也可能被钻空子；是否带来基座之外的新能力仍有争论（第 5 节）'},
+{id:'agent',n:'Agentic RL',flow:[['t-gen','模型思考、调工具'],['t-tool','环境返回'],['t-gen','再思考 …… 结束'],['t-tool','按整条轨迹的结果打分'],['t-sys','GRPO 更新']],
+src:'模型在工具环境里多步交互自己产生的轨迹，不需要标准轨迹',online:'<span class="ok">是</span>',reward:'环境结果 / 验证器 / 评审，通常对整条轨迹打分（任务是否完成），也可以加中间步骤奖励',can:'工具使用、长程任务完成率；适合“正确做法不唯一、只能判断最终是否成功”的任务',cant:'信用分配难、环境搭建与并发、长轨迹成本高；模型一开始完全不会时通常要先做 SFT 冷启动'}];
+$('#m-btns').innerHTML=METHODS.map((m,i)=>`<button class="btn${i?'':' on'}" data-id="${m.id}">${m.n}</button>`).join('');
+function mSel(id){const m=METHODS.find(x=>x.id===id);
+$('#m-flow').innerHTML='<span class="mut">数据流：</span>'+m.flow.map(([c,t])=>`<span class="tok ${c}">${t}</span>`).join(' → ');
+$('#m-out').innerHTML=`<table class="mtab"><tr><td>数据从哪来</td><td>${m.src}</td></tr><tr><td>在线？</td><td>${m.online}</td></tr><tr><td>奖励来源</td><td>${m.reward}</td></tr><tr><td class="ok">能学到</td><td>${m.can}</td></tr><tr><td class="bad">学不到 / 风险</td><td>${m.cant}</td></tr></table>`}
+seg($$('#m-btns .btn'),b=>mSel(b.dataset.id));mSel('sft');
+
+/* 3. online/offline x on/off-policy */
+const Q2={
+'on-on':'<b>Online + On-policy：</b>每一步都用当前模型生成、打分、更新。标准 GRPO、PPO、RLVR 都在这一格。',
+'on-off':'<b>Online + Off-policy（灰色地带）：</b>训练中持续生成，但用于更新的样本来自旧版本模型，例如 RL 中复用旧 rollout。Qwen3 的 Reasoning RL 用 GRPO，报告里说为了样本效率用了 off-policy 训练。可见实际系统里“严格 on-policy”并不常见。',
+'off-on':'<b>迭代式 DPO（灰色地带）：</b>每一轮用最新模型生成新回答、重新标偏好对，再做 DPO。每一轮内部是离线的，但样本来自当前模型，整体接近在线。Llama 3（六轮）和 Tulu 3（含 on-policy 偏好数据）都用了类似做法。',
+'off-off':'<b>Offline + Off-policy：</b>训练前数据已固定，而且来自别的模型或人。标准 DPO（例如用其他模型生成的偏好对）、SFT（用别人写好的答案）都在这一格。'};
+function q2Sel(k){$$('#q2 td.cell').forEach(c=>c.classList.toggle('on',c.dataset.k===k));$('#q2-out').innerHTML=Q2[k]}
+$$('#q2 td.cell').forEach(c=>c.addEventListener('click',()=>q2Sel(c.dataset.k)));q2Sel('on-off');
+
+/* 4. pipeline timeline */
+const STEPS=[['sft','SFT（冷启动 / 格式）'],['rm','训练奖励模型'],['dpo','偏好优化 DPO'],['rl','在线 RL'],['rs','拒绝采样 + SFT / 蒸馏'],['rl2','再一轮 RL']];
+const PL=[
+{n:'InstructGPT',y:2022,use:['sft','rm','rl'],steps:['SFT（标注员写的示范）','训练奖励模型（输出排序数据）','PPO'],key:'RLHF 经典三步。1.3B 的 InstructGPT 在人工评估中优于 175B 的 GPT-3。'},
+{n:'Llama 3',y:2024,use:['sft','rm','dpo','rs'],steps:['先训练奖励模型','每轮：SFT（含拒绝采样数据）→ DPO','共六轮，每轮用最新模型生成新数据'],key:'明确选择 SFT + 拒绝采样 + DPO，而不是 PPO。理由是 PPO 不稳定、难扩展，DPO 计算更少，在 IFEval 等指令遵循评测上更好。<b>没有在线 RL。</b>'},
+{n:'Tulu 3',y:2024,use:['sft','dpo','rl'],steps:['数据整理','SFT','DPO（长度归一化，含 on-policy 偏好数据）','RLVR（PPO + 验证器）'],key:'首次提出 RLVR 这个名称：奖励模型换成验证函数，答对给固定分（α=10），否则 0。用于 GSM8K、MATH、IFEval，约 3 万条 prompt。'},
+{n:'DeepSeek-R1-Zero',y:2025,use:['rl'],steps:['基座','直接大规模 RL（GRPO，规则奖励），不做 SFT'],key:'AIME 2024 pass@1 从 15.6% 升到 71.0%；但可读性差、中英混杂。'},
+{n:'DeepSeek-R1',y:2025,use:['sft','rl','rs','rl2'],steps:['冷启动 SFT（数千条长 CoT）','推理 RL（准确率 + 语言一致性奖励）','拒绝采样生成约 60 万推理样本 + 约 20 万非推理样本，从基座重新 SFT','全场景 RL（推理用规则奖励，通用用奖励模型）'],key:'两段 SFT + 两段 RL。另用这 80 万样本只做 SFT 蒸馏出 Qwen / Llama 小模型，效果优于在 32B 基座上直接跑大规模 RL。'},
+{n:'Qwen3',y:2025,use:['sft','rl','rs','rl2'],steps:['Long-CoT 冷启动 SFT','Reasoning RL（GRPO，3,995 个 query-验证器对）','思考模式融合（SFT，思考数据来自对上一步的拒绝采样）','General RL（20 多类任务的奖励体系，含多轮工具调用）'],key:'小模型不走四阶段，而用“强到弱蒸馏”。报告的对比实验中，在同一个小模型上 on-policy 蒸馏比直接 RL 分数更高，GPU 时间约 1,800 vs 17,920 小时。<span class="mut">这组对比用的是哪个尺寸的模型，本课没有核实。</span>'}];
+$('#pl-btns').innerHTML=PL.map((p,i)=>`<button class="btn${i?'':' on'}" data-i="${i}">${p.n}</button>`).join('');
+function plSel(i){const p=PL[i];
+$('#pl-chips').innerHTML='<span class="mut">通用阶段：</span>'+STEPS.map(([k,t])=>`<span class="chip${p.use.includes(k)?' hi':''}">${t}</span>`).join('<span class="mut">→</span>');
+$('#pl-out').innerHTML=`<b>${p.n}</b>（${p.y}）实际流程：<ol class="steps">${p.steps.map(s=>`<li>${s}</li>`).join('')}</ol><div class="tip">${p.key}</div>`}
+seg($$('#pl-btns .btn'),b=>plSel(+b.dataset.i));plSel(0);
+</script>
+</body></html>
