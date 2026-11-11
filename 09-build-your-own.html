@@ -1,10 +1,28 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>09 客户自建</title><link rel="stylesheet" href="assets/style.css"></head>
+<title>09 客户自建</title><link rel="stylesheet" href="assets/style.css">
+<style>
+.scroll{overflow-x:auto}
+table.mx td,table.mx th{padding:5px 7px;font-size:13px}
+.dt{font-size:12px;color:var(--mut);white-space:nowrap}
+.chk label{display:flex;align-items:flex-start;gap:8px;margin:5px 0;font-size:14px}
+.chk input{margin-top:6px}
+.rq{margin:10px 0;padding-bottom:8px;border-bottom:1px dashed var(--line)}
+.rq:last-child{border-bottom:0}
+.rq b{display:block;margin-bottom:2px}
+.verdict{border-left:3px solid var(--acc);padding:8px 12px;margin:8px 0;background:var(--panel)}
+.verdict.go{border-left-color:var(--ok)}.verdict.fix{border-left-color:var(--warn)}.verdict.stop{border-left-color:var(--bad)}
+.bar{height:14px;border-radius:4px;background:color-mix(in srgb,var(--acc) 55%,var(--panel2));display:inline-block;vertical-align:middle}
+.bar.alt{background:color-mix(in srgb,var(--acc2) 55%,var(--panel2))}
+.bar.vio{background:color-mix(in srgb,var(--vio) 55%,var(--panel2))}
+textarea.pk{width:100%;min-height:150px;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px;font-family:"JetBrains Mono",Menlo,Consolas,monospace;font-size:13px}
+select.btn{font-size:13px}
+</style></head>
 <body><main>
 <span class="badge lv-prac">落地班 · 09</span>
 <h1>客户自建：路线、选型与成本</h1>
-<p class="lead">目标：能判断客户该走托管还是自建，给出分阶段路线和成本量级。</p>
+<p class="lead">目标：能判断一个客户任务适不适合做 RL，该走托管还是自建，环境和评测要花多少人力，同一份工作量在不同路线上大概花多少钱，以及前 90 天每两周交付什么。本页的产品和价格事实都核对于 <b>2026-11-11</b>，来源见第 14 节；查不到一手来源的写“未核实”或者不写。工作量估算是本课程的经验假设，页面上都单独标了出来。</p>
+<div class="note">本页和第 08 课第 3 节（托管方案对比）、第 6 节（选型助手）用同一套事实和逻辑。托管服务的模型清单、区域和价格经常变化，落地前请重新打开第 14 节的链接核对。</div>
 
 <h2>1. 选型向导</h2>
 <div class="card" id="wizard">
@@ -19,30 +37,143 @@
 <button class="btn" data-q="3" data-v="yes">有</button></p>
 <div id="wz-res" class="card" style="background:var(--panel2)">请回答以上三个问题。</div>
 </div>
+<p class="mut">这里只问三个问题。客户还有“底座必须开源权重”“数据必须留在 AWS 账户”“预算形态”这类约束时，用第 08 课第 6 节的<a href="08-landscape.html">选型助手</a>，它会列出短名单和被排除的原因。OpenAI 的自助微调（含 RFT）正在关停，新组织已经不能创建任务，现有客户 2027-01-06 起也不能，所以两个向导都不把它列为可规划的选项。</p>
 
-<h2>2. 自建路线图（不管走哪条路都要经过）</h2>
-<div class="phase"><span class="pill">P0 适配性评估（约 1 周）</span>：任务能否自动判定成功？基础模型基线成功率是否在 5%–95% 之间？是否有几百到几千个多样的任务？任何一个答案是“否”，先别做 RL。</div>
-<div class="phase"><span class="pill">P1 环境工程（2–4 周，工作量最大）</span>：可复位的沙箱、模拟或只读的工具后端、任务生成器、对模型隐藏的验证器。不能直接拿生产系统给 RL 打：上千条并发轨迹会压垮下游，而且写操作有真实副作用。</div>
-<div class="phase"><span class="pill">P2 奖励函数（约 1 周，持续迭代）</span>：结果主导 + 有界塑形；为奖励写单调性测试；人工读 50 条轨迹。</div>
-<div class="phase"><span class="pill">P3 冷启动 SFT（按需）</span>：用前沿模型跑出成功轨迹做蒸馏，修复格式和基本能力。</div>
-<div class="phase"><span class="pill">P4 RL 训练</span>：从小规模开始（Bedrock 建议先用 100–200 条样本验证奖励）；group size 8–16；监控奖励均值与方差、熵、有效工具调用率、轨迹长度。</div>
-<div class="phase"><span class="pill">P5 评测</span>：独立的隐藏测试集；按<b>实际服务时的解码参数</b>评测；报告 pass^k 衡量稳定性；完成率单独报告。</div>
-<div class="phase"><span class="pill">P6 部署与持续学习</span>：线上 trace 回流生成新任务；训练和部署用同一份智能体代码，避免“训的不是上线的”。</div>
+<h2>2. P0 就绪度评分卡：这个任务该不该做 RL</h2>
+<p>先回答 8 个问题。每题 0–2 分，满分 16。有些答案是<b>硬阻断</b>：不管总分多少，都会直接给出“先修复”或“暂不建议 RL”。判断依据来自 Bedrock RFT 的最佳实践（基线一直为 0 先做 SFT，高于 95% 可能不需要 RFT；先用 100–200 条样本验证奖励）和第 04、07 课。</p>
+<div class="card" id="rd"></div>
+<div id="rd-out" class="card" style="background:var(--panel2)">请回答全部 8 个问题。</div>
+<div class="tip"><b>为什么基线要在 5%–95% 之间：</b>GRPO 靠同一任务多条轨迹之间的奖励差来学习（第 03 课）。基线接近 0，一组 8 条几乎全失败，没有差异可学；基线接近 100%，几乎全成功，同样没有差异，提升空间也小。第 11 课用按字段给部分分的方式，把“全错 / 全对”拆成有梯度的分数，就是为了处理前一种情况。</div>
 
-<h2>3. 成本估算器（托管多轮 RL，按 token 计费）</h2>
+<h2>3. 自建路线图（不管走哪条路都要经过）</h2>
+<div class="phase"><span class="pill">P0 适配性评估（约 1–2 周）</span>：用第 2 节的评分卡。任务能否自动判定成功？基础模型基线成功率是否在 5%–95% 之间？是否有几百到几千个多样的任务？有硬阻断，先别做 RL。</div>
+<div class="phase"><span class="pill">P1 环境工程（2–4 周，工作量最大）</span>：可复位的沙箱、模拟或只读的工具后端、任务生成器、对模型隐藏的验证器。不能直接拿生产系统给 RL 打：上千条并发轨迹会压垮下游，而且写操作有真实副作用。第 4 节有清单和工作量估算器。</div>
+<div class="phase"><span class="pill">P2 奖励函数（约 1 周，持续迭代）</span>：结果主导 + 有界塑形；为奖励写单调性测试；人工读 50 条轨迹。用 LLM 评审时，先按第 04 课第 4.4–4.8 节做校准、留出验证和最终测试。</div>
+<div class="phase"><span class="pill">P3 冷启动 SFT（按需）</span>：用前沿模型跑出成功轨迹做蒸馏，修复格式和基本能力。基线接近 0 时这一步通常是必须的。</div>
+<div class="phase"><span class="pill">P4 RL 训练</span>：从小规模开始（Bedrock 文档建议先用 100–200 条样本验证奖励函数是否正确）；group size 8–16 是常见取值；监控奖励均值与方差、熵、有效工具调用率、轨迹长度。训练期间不要重新部署智能体（第 07 课第 8 节）。</div>
+<div class="phase"><span class="pill">P5 评测</span>：开发集、留出集、最终测试集三份分开，评测前冻结；按<b>实际服务时的解码参数</b>评测；报告 pass^k 衡量稳定性；完成率单独报告。第 5 节有完整协议。</div>
+<div class="phase"><span class="pill">P6 部署与持续学习</span>：线上 trace 回流生成新任务；训练和部署用同一份智能体代码，避免“训的不是上线的”。SageMaker AI 多轮 RL 的发布公告写明，训练后的模型可以部署到 SageMaker AI 端点或 Amazon Bedrock。</div>
+
+<h2>4. 环境工程：最大的一笔投入</h2>
+<p>RL 训练里，模型每一步都要和环境交互。环境要同时满足三件事：每条轨迹互不干扰、上千条并发时不出故障、模型看不到判分答案。第 10 课的 ShopEnv 是一个完整例子：6 个工具（3 个只读：<code>get_user</code>、<code>list_orders</code>、<code>get_order</code>；3 个写：<code>return_items</code>、<code>exchange_items</code>、<code>transfer_to_human</code>），每条 rollout 从一份独立的 SQLite 快照启动，工具在进程内直接操作数据库，任务由前沿模型基于数据库状态和政策合成、人工抽检 10%，判分看最终数据库状态。</p>
+<h3>4.1 清单</h3>
+<div class="card chk" id="ec"></div>
+<div id="ec-out" class="res"></div>
+<h3>4.2 工作量估算器</h3>
+<p>默认值就是 ShopEnv 的配置。每一项的人周区间是<b>本课程的经验假设，不是公开数据</b>，只用来对比不同方案的相对大小。用自己团队做过的类似项目校准。</p>
 <div class="card">
-<p class="mut">默认值取自 AWS 博客公开的 Wordle 实验（gpt-oss-20b，us-east-1 发布时的列表价）：100 步，每步 128 个任务 × 8 条轨迹，平均每条轨迹约 4.7k prefill、1.5k 生成、6.1k 训练 token。换成你的任务估计值。</p>
+<div class="grid g4">
+<div><label class="sl">只读工具数</label><input type="number" id="ee-ro" min="0" step="1" value="3"></div>
+<div><label class="sl">写工具数（需要模拟副作用）</label><input type="number" id="ee-wr" min="0" step="1" value="3"></div>
+<div><label class="sl">状态复位方式</label><select id="ee-reset" class="btn"><option value="file" selected>文件快照（SQLite 副本等）</option><option value="db">数据库或服务快照（容器化依赖）</option><option value="vm">整机或虚拟机镜像（桌面、浏览器、仓库）</option></select></div>
+<div><label class="sl">任务生成方式</label><select id="ee-task" class="btn"><option value="manual">人工编写</option><option value="tpl">模板 + 参数采样</option><option value="llm" selected>LLM 基于环境合成 + 过滤</option></select></div>
+<div><label class="sl">隐藏验证器</label><select id="ee-ver" class="btn"><option value="state" selected>检查最终状态（数据库、文件）</option><option value="tests">运行测试套件</option><option value="judge">LLM 评审（需校准）</option></select></div>
+<div><label class="sl">需要用户模拟器</label><select id="ee-sim" class="btn"><option value="1" selected>需要（多轮对话）</option><option value="0">不需要</option></select></div>
+<div><label class="sl">目标并发 rollout 数</label><input type="number" id="ee-conc" min="1" step="50" value="200"></div>
+<div><label class="sl">投入的环境工程师人数</label><input type="number" id="ee-ppl" min="1" step="1" value="2"></div>
+</div>
+<div id="ee-out" class="res" style="margin-top:10px;overflow-x:auto"></div>
+</div>
+<div class="tip"><b>可靠性是环境的一部分。</b>第 07 课第 8 节的规则：每条 rollout 都要在有限时间内结束并返回一个奖励；区分模型的错和环境的错；下游限流；凭证在并发下会被打满。GRPO 按组计算优势，单条失败率 1% 时，G = 8 的一组全部正常的概率是 0.99<sup>8</sup> ≈ 92.3%，失败率 5% 时只有 66.3%。所以估算器里“可靠性加固”是固定项，不能省。</div>
+
+<h2>5. 评测协议</h2>
+<p>评测决定了“RL 有没有用”这个结论是否可信。下面的协议和第 10 课的实验设计一致。</p>
+<table>
+<tr><th>集合</th><th>用途</th><th>规则</th><th>第 10 课的取值</th></tr>
+<tr><td>开发集</td><td>调提示词、调奖励、读错误</td><td>随便看、随便改</td><td>训练 600 / 验证 150</td></tr>
+<tr><td>留出集</td><td>决定版本（选检查点、选 rubric）</td><td>只在做决定时看；每看一次错误再改，它就变成半个训练集</td><td>—</td></tr>
+<tr><td>最终测试集</td><td>报告结论</td><td>训练前冻结并记录 SHA256；只跑一次；看完结果不改任何东西；最好换一个数据来源</td><td>隐藏 200，其中 30% 是训练中没出现过的政策组合</td></tr>
+</table>
+<ul>
+<li><b>先冻结再跑：</b>评测集、判分代码、智能体配置、解码参数都记录哈希，再开始跑。</li>
+<li><b>按服务设置评测：</b>temperature、推理强度、最大回合数都和上线一致。Wordle 博客里，gpt-oss-20b 在训练用的 low 推理强度下从 15% 到 69%，在默认推理强度下从 61% 到 84%，两组数字差别很大，只有和上线一致的那组有意义。</li>
+<li><b>报告 pass^k：</b>同一任务跑 k 次全部成功的比例。客服、运维这类场景要的是“每次都对”。</li>
+<li><b>完成率单独报告：</b>超时、崩溃、空输出不要悄悄剔除，也不要和“答错”混在一起。</li>
+<li><b>统计：</b>多个种子、bootstrap 置信区间；RL 组至少两个独立训练种子（第 10 课第 7 节）。</li>
+</ul>
+<h3>5.1 课程自己的教训：评审一致率从 1.00 掉到 0.82</h3>
+<p>第 04 课第 4.5–4.8 节用 GPT-6 Luna 做 LLM 评审，“没有编造”（no_fabrication）这一项的一致率经历了四个阶段：</p>
+<table>
+<tr><th>阶段</th><th>数据</th><th>no_fabrication 一致率</th><th>6 项全对</th><th>这组数字的问题</th></tr>
+<tr><td>第 2 轮校准（4.5）</td><td>12 条，rubric 作者看过第 1 轮分歧后自己补的</td><td>1.00</td><td>12 / 12</td><td>为这批样本量身定做；离线关键词评审在这批上也全对</td></tr>
+<tr><td>留出验证（4.6）</td><td>99 条，按缺陷构造、标签不来自 rubric 作者</td><td class="warn">0.89</td><td>83 / 99</td><td>第一次看到真实误差：16 处误报，主要是重复扣分</td></tr>
+<tr><td>修复后重跑（4.7）</td><td>同一批 99 条</td><td>0.98</td><td>90 / 99</td><td>改 rubric 时读过这批错误，留出集已经参与调参，数字偏乐观</td></tr>
+<tr><td>最终测试（4.8）</td><td>93 条新样本，换了生成模型，先冻结再只跑一次</td><td class="bad">0.82</td><td>67 / 93</td><td>这才是不偏的估计：0.98 里有一部分是对上一批生成模型写作风格的过拟合</td></tr>
+</table>
+<p>放到客户项目里，同样的事会发生在<b>整个智能体</b>上：在开发集上反复改提示词、奖励和超参，开发集分数会一路上涨，而上线表现可能更接近“最终测试”那一行。所以最终测试集要在训练前冻结，结论只用它。</p>
+<h3>5.2 动手：同样的 pass^1，不同的稳定性</h3>
+<p>每行一个任务，每个字符是一次试验：<code>1</code> 成功，<code>0</code> 失败，<code>x</code> 没跑完（超时、崩溃）。pass^k 按每个任务 c 次成功、n 次试验，用无偏估计 C(c, k) / C(n, k) 再对任务求平均；<code>x</code> 在 pass^k 里算失败。</p>
+<div class="card">
+<div class="flex"><span class="mut">k =</span><button class="btn" data-k="1">1</button><button class="btn" data-k="2">2</button><button class="btn" data-k="3">3</button><button class="btn on" data-k="4">4</button></div>
+<div class="grid g2" style="margin-top:8px">
+<div><label class="sl">模型 A</label><textarea class="pk" id="pk-a">1110
+1101
+1011
+0111
+1110
+1101
+1011
+0111
+1110
+1101</textarea></div>
+<div><label class="sl">模型 B</label><textarea class="pk" id="pk-b">1111
+1111
+1111
+1111
+1111
+1111
+1111
+1100
+0x00
+xx00</textarea></div>
+</div>
+<div id="pk-out" class="res" style="margin-top:8px;overflow-x:auto"></div>
+</div>
+<div class="tip">默认数据里，A 和 B 的 pass^1 都是 0.75。A 每个任务都是 4 次对 3 次，pass^4 为 0；B 有 7 个任务每次都对，pass^4 为 0.70。B 还有 3 次试验没跑完，完成率只有 92.5%：如果这是环境故障，要先修环境再比较；如果是模型陷入循环，就是模型的问题。只报一个平均成功率，这些差别都看不到。</div>
+
+<h2>6. 成本估算器（托管多轮 RL，按 token 计费）</h2>
+<div class="card">
+<p class="mut">默认值取自 AWS 博客公开的 Wordle 实验（gpt-oss-20b，博客写明的 us-east-1 列表价，博客发布于 2026-10）：100 步，每步 128 个任务 × 8 条轨迹；博客报告的总量是 105,486 条 rollout、4.92 亿 prefill、1.60 亿生成、6.43 亿训练 token，折合每条轨迹约 4,660 prefill、1,514 生成、6,099 训练 token。换成你的任务估计值。</p>
 <div class="grid g4" id="cost-in"></div>
 <div id="cost-out" class="res" style="margin-top:10px"></div>
 </div>
-<div class="tip">训练 token 成本通常最大，并且随轨迹长度增长。缩短轨迹（限制回合数、截断旧工具输出、降低推理强度）是最直接的省钱方式。博客中 low 推理强度比 medium 少用 63%–83% 的生成 token。</div>
+<div class="tip">训练 token 成本通常最大，并且随轨迹长度增长。缩短轨迹（限制回合数、截断旧工具输出、降低推理强度）是最直接的省钱方式。博客中 low 推理强度比 medium 少用 63%–83% 的生成 token。默认值算出的总轨迹数是 100 × 128 × 8 = 102,400，比博客实际的 105,486 条少约 3%，所以合计约 $405，略低于博客的训练 token $339 + Runtime 约 $79。</div>
 
-<h2>4. 自建 GPU 的经验量级（仅供估算）</h2>
+<h2>7. 同一份工作量，在四条路线上大概花多少</h2>
+<p>这个对比器直接读取第 6 节的工作量（轨迹数、每条 token 数、token 单价、Runtime 单价），再分别按四条路线的计费方式计算。<b>只算云账单，不算人力。</b>环境工程（第 4 节）和评测（第 5 节）在每条路线上都要做，所以不进入对比；自建额外的 GPU 运维人力单独列在第 9 节。</p>
+<div class="card">
+<div class="grid g4">
+<div><label class="sl">训练次数（第 10 课有 A4、A5、A5′ 三次）</label><input type="number" id="cc-runs" min="1" step="1" value="1"></div>
+<div><label class="sl">Bedrock RFT 每次训练时长（小时，<b>假设</b>）</label><input type="number" id="cc-bh" min="0" step="1" value="10"></div>
+<div><label class="sl">Bedrock RFT 训练单价（$ / 小时）</label><input type="number" id="cc-bp" min="0" step="any" value="80"></div>
+<div><label class="sl">Bedrock RFT 模型存储（月数 × $1.95）</label><input type="number" id="cc-bm" min="0" step="1" value="1"></div>
+<div><label class="sl">自建：GPU 节点数</label><input type="number" id="cc-nodes" min="1" step="1" value="1"></div>
+<div><label class="sl">自建：每次的集群分配时长（小时，<b>假设</b>）</label><input type="number" id="cc-hh" min="0" step="1" value="24"></div>
+<div><label class="sl">自建：每节点小时单价（$，自己从定价页填）</label><input type="number" id="cc-hp" min="0" step="any" value="" placeholder="未填写"></div>
+<div><label class="sl">自建：存储与关联服务（$ / 次，<b>假设</b>）</label><input type="number" id="cc-hx" min="0" step="any" value="0"></div>
+</div>
+<div id="cc-out" class="res" style="margin-top:10px;overflow-x:auto"></div>
+</div>
+<div class="grid g2">
+<div class="card"><b>每条路线的口径</b><ul style="font-size:14px">
+<li><b>SageMaker AI 多轮 RL：</b>按百万 token 分预填充、生成、训练三项计费，AgentCore Runtime 按 vCPU 和内存另计。</li>
+<li><b>Bedrock RFT：</b>整个训练流程按小时计费，gpt-oss-20b 和 Qwen3 32B 均为 80 美元 / 训练小时（us-east-1、us-west-2），训练后的模型存储 1.95 美元 / 月，推理按 token 另计。官方没有公布“多少数据需要多少训练小时”，10 小时只是示例假设，请用 100–200 条样本的小规模试跑实测。<b>它只支持单次回答</b>，多轮任务要先改写成单轮才可比。</li>
+<li><b>SageMaker AI 训练会话 API：</b>也按预填充、生成、训练三类 token 计费，但文档没有给出单价，本页没有核实到具体数字，所以不计算。</li>
+<li><b>HyperPod / EKS 自建：</b>HyperPod 按“所分配容量的时长”计费，账单按分配类型、实例类型和使用时长分项。集群开着调试、排队、等数据的时间都要付钱，所以填的是分配时长，不是训练时长。本页不写死实例价格，请自己查定价页并注明日期。EKS、FSx for Lustre、S3 等另计。</li>
+</ul></div>
+<div class="card"><b>怎么读结果</b>
+<p style="font-size:14px">默认值下，托管多轮 RL 的 token 费用约 $329，Runtime 约 $77；Bedrock RFT 是 10 × $80 + $1.95 ≈ $802（如果任务能改写成单轮）；自建要先填节点单价。对比器会算出<b>盈亏平衡单价</b>：1 个节点分配 24 小时，节点单价低于约 $13.69 / 小时，自建的云账单才比托管训练 token 便宜。这个比较还没有算 GPU 运维人力。</p>
+<p style="font-size:14px" class="mut">托管多轮 RL 和自建都把 rollout 放在 AgentCore Runtime，所以 Runtime 费用两边相同。AgentCore 定价页的 Runtime 示例按 $0.1276 / vCPU 小时、$0.0169 / GB 小时计算（页面示例，未注明区域，2026-11-11 查看）；CPU 在等待 LLM 和工具返回时不计费。默认 $0.75 / 千条轨迹是 Wordle 博客的约 $79 / 105,486 条折算，轨迹越长、内存越大，单价越高。</p></div>
+</div>
+
+<h2>8. 自建 GPU 的经验量级（仅供估算）</h2>
 <div class="grid g2">
 <div class="card"><ul>
-<li>≤32B 模型做 LoRA RL：单节点 8×H100/H200 级别通常可以起步，推理和训练共置。</li>
-<li>30B–70B 全参数或大 MoE：通常 2–8 个节点，推理和训练分离部署。</li>
-<li>Rollout 沙箱是 CPU 资源，单独弹性扩缩；SWE 类任务上千并发很常见。</li>
+<li>≤32B 模型做 LoRA RL：单节点 8×H100/H200 级别通常可以起步，推理和训练共置（经验值，未核实到官方配置表）。</li>
+<li>30B–70B 全参数或大 MoE：通常 2–8 个节点，推理和训练分离部署（经验值）。</li>
+<li>两个有出处的参照：AgentCore RL Toolkit 报告 Qwen3 Coder 30B 在一个 p6 节点上约有 500 万 token 的 KV 容量，按 64K 上下文只能放 78 条轨迹（第 07 课第 7 节）；verl README 收录了 Mind Lab 在 64 张 H800 上对万亿参数模型做 GRPO LoRA 的案例（第 08 课）。</li>
+<li>Rollout 沙箱是 CPU 资源，单独弹性扩缩；SWE 类任务上千并发很常见。AgentCore Runtime 每会话最多 2 vCPU / 8 GB，活跃会话默认配额在美东（弗吉尼亚北部）和美西（俄勒冈）为 5000（第 07 课第 9 节）。</li>
+<li>HyperPod 按分配时长计费：训练跑完要及时缩容，调试阶段用小集群。</li>
 <li>实际需求和轨迹长度、上下文长度、并行策略强相关，一定先做小规模压测。</li>
 </ul></div>
 <div class="card"><b>团队配置</b><ul>
@@ -50,30 +181,258 @@
 <li>RL / 训练工程师 1 人：托管路线可以兼职。</li>
 <li>领域专家：定义成功标准、审轨迹。</li>
 <li>评测负责人：隐藏集、统计显著性、防数据污染。</li>
+<li>自建还要加：GPU 集群运维（调度、故障节点、存储、权重同步、vLLM / SGLang 服务），通常至少 1 人。</li>
 </ul></div>
 </div>
 
-<h2>5. 客户常问</h2>
+<h2>9. 自建还是购买</h2>
+<p>“自建”是一个梯度，不是二选一。下表从最托管到最自建排列，和第 08 课第 8 节的 AWS 梯度一致。</p>
+<div class="scroll"><table class="mx">
+<tr><th>路线</th><th>你要自己做的</th><th>平台替你做的</th><th>模型与训练方式（2026-11-11 文档）</th><th>计费</th><th>什么时候选</th></tr>
+<tr><td><b>Amazon Bedrock RFT</b></td><td>数据、Lambda 奖励函数、评测</td><td>采样、GRPO 训练、推理部署</td><td>Nova 2 Lite（us-east-1）；gpt-oss-20B、Qwen3 32B（us-west-2）；单次回答</td><td>按训练小时（开源权重 $80 / 小时）+ 存储 + 推理 token</td><td>单轮任务，最快验证奖励（第 11 课）</td></tr>
+<tr><td><b>SageMaker AI 多轮 RL</b></td><td>环境、智能体（部署到 AgentCore 或经 Lambda 转发）、奖励上报、评测</td><td>rollout 编排、轨迹收集、GRPO + LoRA、检查点、MLflow、评测任务</td><td>Nova Lite 2.0、GPT-OSS-20B（us-east-1、us-west-2）；Gemma-4-31B-it、Qwen 3.6 27B（us-west-2）；LoRA</td><td>按百万 token（预填充 / 生成 / 训练）+ AgentCore 另计</td><td>多轮智能体，托管 LoRA 够用（第 10 课）</td></tr>
+<tr><td><b>SageMaker AI 训练会话 API</b></td><td>上面全部 + 训练循环和损失函数</td><td>GPU 分配、模型和 LoRA 加载、分布式执行、容错、检查点</td><td>gpt-oss-20b、gemma-4-31B-it（us-east-1、us-west-2、ap-south-1）；gemma-4-E2B-it、Qwen3.8-27B（us-west-2）；Qwen3.6-27B（us-west-2、ap-south-1）；文档示例用 LoRA 客户端，是否支持全参数未核实</td><td>按处理的 token，奖励计算等本地运算不计 GPU 时间；单价未核实</td><td>要自定义 RL 算法，但不想运维 GPU</td></tr>
+<tr><td><b>Thinking Machines Tinker</b></td><td>同上</td><td>同上</td><td>模型覆盖面广（第 08 课）；LoRA</td><td>按百万 token</td><td>需要更多模型选择，且数据可以离开 AWS 账户</td></tr>
+<tr><td><b>HyperPod / EKS 自建</b>（AgentCore RL Toolkit + verl / slime）</td><td>上面全部 + GPU 集群、推理服务、权重同步、训练稳定性</td><td>集群弹性和故障恢复（HyperPod）</td><td>任意开源权重模型、全参数、任意算法</td><td>按分配容量时长 + 关联服务 + AgentCore</td><td>全参数、算法消融、不在托管列表里的模型、长期大规模训练</td></tr>
+</table></div>
+<div class="tip"><b>默认建议：</b>先在托管路线上把环境、奖励和评测跑通，拿到“RL 确实有收益”的证据，再决定是否往右移。环境、奖励和评测代码在各条路线之间可以复用：智能体始终部署在 AgentCore Runtime，换的只是训练后端（AgentCore RL Toolkit 支持 verl、slime、SkyRL、Tinker 和 SageMaker 训练会话）。出现下面任一情况再考虑自建：托管列表里没有需要的模型；必须全参数训练；要做算法消融；训练量大到常驻集群的利用率能长期保持在高位。</div>
+
+<h2>10. 90 天计划</h2>
+<p>假设走“先托管、后决定”的路线，团队有 2 名环境工程师、1 名兼职 RL 工程师、1 名评测负责人和领域专家支持。每个阶段都有退出条件，不满足就停在这一阶段，不往下走。</p>
+<div class="scroll"><table class="mx">
+<tr><th>周</th><th>阶段</th><th>交付物</th><th>退出条件</th></tr>
+<tr><td>1–2</td><td>P0 就绪评估与基线</td><td>第 2 节评分卡；成功判定代码；用前沿模型和候选开源底座各跑 20–50 条并人工阅读</td><td>评分卡没有硬阻断；候选底座基线在 5%–95%；客户确认上线可以用开源权重模型</td></tr>
+<tr><td>3–6</td><td>P1 环境工程</td><td>可复位环境、工具模拟、任务生成器、隐藏验证器；开发 / 留出 / 最终测试三份数据，最终测试集冻结并记录 SHA256</td><td>在目标并发下压测，单条 rollout 的基础设施失败率 ≤ 1%（G = 8 时整组正常约 92%）；每条 rollout 都返回奖励</td></tr>
+<tr><td>5–7</td><td>P2 奖励与评审校准</td><td>奖励函数和单调性测试；用 LLM 评审时完成校准、留出验证</td><td>单调性测试全过；评审在留出集上没有漏报，误报原因已归类（第 04 课 4.6）</td></tr>
+<tr><td>7–8</td><td>P3 / P4 小规模试跑</td><td>按需做 SFT；托管路线的小规模 RL（例如 Bedrock RFT 100–200 条，或多轮 RL 先跑少量步数）；实测每次训练的 token 量或小时数</td><td>训练奖励和开发集成功率同向上升；人工读 50 条高分轨迹没有发现奖励作弊；用实测值重算第 7 节</td></tr>
+<tr><td>9–10</td><td>P4 正式训练与消融</td><td>正式训练 + 预先登记的对照组（如第 10 课的 RL、SFT → RL、去掉违规惩罚）；至少 2 个训练种子</td><td>留出集上提升的 bootstrap 95% 置信区间不含 0</td></tr>
+<tr><td>11–12</td><td>P5 / P6 最终测试与灰度</td><td>最终测试只跑一次（服务设置、pass^k、完成率）；影子流量或小比例灰度</td><td>达到预先登记的判定标准；每千任务成本算清楚</td></tr>
+<tr><td>13</td><td>决策</td><td>用实测数字重填第 9 节的表：继续托管、迁到训练会话 API 或自建、或停止</td><td>书面决策和理由；下一季度的任务回流计划</td></tr>
+</table></div>
+
+<h2>11. 风险与对策</h2>
+<div class="scroll"><table class="mx">
+<tr><th>风险</th><th>早期信号</th><th>对策</th></tr>
+<tr><td>环境工程超期</td><td>第 4 周还没有可复位的环境</td><td>先缩小任务范围（少几个工具、一个领域）；用第 4.2 节的估算器重估；优先保证复位和验证器</td></tr>
+<tr><td>奖励作弊</td><td>奖励上升但人工读轨迹发现没办成事，例如什么都转人工</td><td>结果主导 + 有界塑形；条件化奖励（第 10 课第 11 节）；训练中定期抽 20–30 条高分轨迹人工复核</td></tr>
+<tr><td>LLM 评审过拟合</td><td>改 rubric 后留出集分数大涨</td><td>每次修改都在新数据上重测；最终测试换数据来源（第 5.1 节：0.98 → 0.82）</td></tr>
+<tr><td>评测泄漏</td><td>开发集和最终测试的分数几乎一样高</td><td>训练前冻结最终测试集并记录 SHA256；合成任务和公开基准去重</td></tr>
+<tr><td>环境故障被算成模型失败</td><td>同一批里有些组全是最低分；完成率下降</td><td>重试或标记无效；单独统计完成率（第 07 课第 8 节）</td></tr>
+<tr><td>生产系统副作用</td><td>训练期间下游告警或出现真实写入</td><td>训练只连模拟或快照；下游按估算 QPS 限流</td></tr>
+<tr><td>成本超支</td><td>实测每条轨迹 token 数远高于估算</td><td>小规模试跑后用实测值重算；限制回合数、截断工具输出、降低推理强度</td></tr>
+<tr><td>自建集群空转</td><td>集群分配时长远大于训练时长</td><td>HyperPod 按分配时长计费：训练完及时缩容；调试用小集群</td></tr>
+<tr><td>服务或模型清单变化</td><td>目标模型下线、区域变化、平台关停（例如 OpenAI 自助微调）</td><td>环境、奖励、评测和训练后端解耦（AgentCore RL Toolkit），保留至少两条可切换的训练路线</td></tr>
+<tr><td>训练和上线不一致</td><td>评测分高，上线效果差</td><td>同一份智能体代码；按服务设置评测；影子流量验证</td></tr>
+<tr><td>通用能力退化</td><td>通用基准或其他业务任务回归</td><td>LoRA、KL 约束、混入通用任务、上线前跑回归测试</td></tr>
+</table></div>
+
+<h2>12. 客户常问</h2>
 <details><summary>我们已经有在线跑的智能体，能直接用线上数据训练吗？</summary><p>线上 trace 适合用来<b>生成任务</b>和做 SFT，但不能直接当 RL 数据：RL 需要用当前策略重新和环境交互。正确做法是把线上会话转成“初始状态 + 目标”的任务，在沙箱环境里重放。</p></details>
 <details><summary>RL 会不会让模型通用能力下降？</summary><p>可能会，尤其是全参数训练和高学习率。LoRA、KL 约束、混入通用任务、在通用基准上做回归测试，都可以控制这个风险。</p></details>
-<details><summary>多久能看到效果？</summary><p>托管路线下，环境和奖励就绪后，一次训练通常是小时级（Wordle 示例约 12.7 小时）。真正的时间成本在 P1 环境工程。</p></details>
+<details><summary>多久能看到效果？</summary><p>托管路线下，环境和奖励就绪后，一次训练通常是小时级（Wordle 示例 100 步约 12 小时 40 分钟）。真正的时间成本在 P1 环境工程，第 10 节的计划里它占了 4 周。</p></details>
 <details><summary>和提示词工程、SFT 比，RL 的边界在哪？</summary><p>先做提示词优化和 SFT，它们更便宜。RL 适合“知道什么是好结果，但说不清正确步骤”的任务，以及需要在稳定性（pass^k）上进一步提升的场景。</p></details>
+<details><summary>我们在用 OpenAI 的 RFT，还能继续规划吗？</summary><p>不建议。OpenAI 的 Deprecations 页面写明：2026-05-07 起从没跑过微调的组织不能再建任务；2026-07-02 起过去 60 天没调用过微调模型的组织也不能；2027-01-06 起现有活跃客户也不能再建新任务，已训练模型的推理保留到底座模型下线。RFT 的主力模型 o4-mini 已于 2026-10-23 下线。迁移时环境、奖励和评测可以复用，训练换到第 9 节表里的路线。</p></details>
+<details><summary>只用 LoRA 够吗？</summary><p>目前 AWS 的托管多轮 RL 只训练 LoRA，训练会话 API 的文档示例也用 LoRA 客户端。大多数“把小模型在一个业务任务上练稳”的场景，LoRA 是合理的起点。需要全参数时走自建，并在第 10 节第 9–10 周的消融里比较两者。</p></details>
+
+<h2>13. 小测验</h2>
+<div class="quiz" data-answer="2"><b>客户的分类任务上，候选开源模型的基线成功率已经是 97%，结果可以用程序判定，任务也很多。按第 2 节的评分卡，结论是？</b><br>
+<button class="btn opt">A. 条件都满足，直接上 RL</button>
+<button class="btn opt">B. 先做 SFT 再做 RL</button>
+<button class="btn opt">C. 暂不建议 RL：组内几乎全成功，没有差异可学，提升空间也小；先确认剩下 3% 是什么错误，用提示词或数据修复更便宜</button>
+<div class="qe">正确答案 C。Bedrock RFT 文档的说法是奖励高于 95% 时 RFT 可能没有必要。B 适用于基线接近 0 的情况。</div></div>
+<div class="quiz" data-answer="1"><b>团队读了留出集上的评审错误，改了 rubric，在同一个留出集上重跑，一致率从 0.89 升到 0.98。最准确的说法是？</b><br>
+<button class="btn opt">A. 评审已经可靠，可以直接用于训练</button>
+<button class="btn opt">B. 0.98 偏乐观，因为留出集已经参与了调参；要在一批没看过的新样本上只跑一次才有不偏的估计（课程里新样本上是 0.82）</button>
+<button class="btn opt">C. 0.89 才是真实值，修复没有用</button>
+<div class="qe">正确答案 B。修复确实修掉了一类误报（重复扣分），但同一批数据不能既用来改又用来证明。第 04 课第 4.8 节换了生成模型做最终测试，暴露出对上一批写作风格的过拟合。</div></div>
+<div class="quiz" data-answer="0"><b>自建路线：训练本身只跑 8 小时，但 HyperPod 集群从创建到删除共分配了 30 小时。账单按哪个时长计？</b><br>
+<button class="btn opt">A. 30 小时：HyperPod 按容量分配的时长计费</button>
+<button class="btn opt">B. 8 小时：只按 GPU 实际计算时间计费</button>
+<button class="btn opt">C. 按处理的 token 数计费</button>
+<div class="qe">正确答案 A。HyperPod 文档写明按所分配容量的时长计费。按 token 计费的是托管多轮 RL 和训练会话 API。所以第 7 节的对比器填的是分配时长。</div></div>
+
+<h2>14. 参考文献（均于 2026-11-11 访问）</h2>
+<h3>AWS</h3>
+<ul>
+<li><a href="https://aws.amazon.com/bedrock/pricing/">Amazon Bedrock 定价</a>（Reinforcement Fine Tuning Pricing：gpt-oss-20b、Qwen3 32B 均为 $80.00 / 训练小时，存储 $1.95 / 月，us-east-1 与 us-west-2）</li>
+<li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Bedrock 强化微调</a>（支持的模型；最佳实践：先用 100–200 条样本，奖励一直为 0 先做 SFT，高于 95% 可能不需要 RFT，奖励函数秒级完成）</li>
+<li><a href="https://docs.aws.amazon.com/sagemaker/latest/dg/model-customize-mtrl.html">SageMaker AI 多轮强化学习</a>（支持的模型与区域、三类计费维度）· <a href="https://aws.amazon.com/about-aws/whats-new/2026/06/multi-turn-reinforcement-learning-on-sagemaker-ai/">发布公告</a>（2026-06；按 token 付费；可部署到 SageMaker AI 端点或 Bedrock）</li>
+<li><a href="https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/">Multi-Turn Reinforcement Learning on Amazon SageMaker AI: A hands-on guide</a>（2026-10；105,486 条 rollout、三类 token 用量与单价、约 $339 + Runtime 约 $79、12 小时 40 分钟、按服务设置评测）</li>
+<li><a href="https://docs.aws.amazon.com/sagemaker/latest/dg/customizing-models-training-sessions.html">SageMaker AI 训练会话 API</a>（支持的模型、上下文长度、计费维度）· <a href="https://aws.amazon.com/about-aws/whats-new/2026/10/training-session-apis-on-sagemaker-ai/">发布公告</a>（2026-10 正式发布，us-east-1、us-west-2、ap-south-1）</li>
+<li><a href="https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-hyperpod-ref.html">SageMaker HyperPod references：pricing</a>（按容量分配时长计费）· <a href="https://aws.amazon.com/sagemaker/ai/pricing/">SageMaker AI 定价</a></li>
+<li><a href="https://aws.amazon.com/bedrock/agentcore/pricing/">Amazon Bedrock AgentCore 定价</a>（Runtime 按 CPU 和内存消耗、按秒计费；示例费率）· <a href="https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/bedrock-agentcore-limits.html">AgentCore 配额</a></li>
+<li><a href="https://github.com/awslabs/agentcore-rl-toolkit">awslabs/agentcore-rl-toolkit</a>（训练后端：verl、slime、SkyRL、Tinker、SageMaker 训练会话）</li>
+</ul>
+<h3>其他厂商</h3>
+<ul>
+<li>OpenAI：<a href="https://developers.openai.com/api/docs/deprecations">Deprecations</a>（自助微调时间线；o4-mini 2026-10-23 下线；Evals 与 Agent Builder 2026-11-30 关停）</li>
+</ul>
+<h3>本课程</h3>
+<ul>
+<li><a href="03-basics-grpo.html">第 03 课 GRPO 入门</a> · <a href="04-intermediate-reward-design.html">第 04 课 奖励设计</a>（4.4 校准、4.5 真实校准、4.6 留出验证、4.7 修复后重跑、4.8 最终测试）</li>
+<li><a href="07-advanced-systems.html">第 07 课 系统架构与异步</a>（第 7 节 Little 定律、第 8 节 Rollout 可靠性、第 9 节映射到 AWS）</li>
+<li><a href="08-landscape.html">第 08 课 前沿玩家与方案</a>（第 3 节托管方案对比、第 6 节选型助手）</li>
+<li><a href="10-aws-experiment.html">第 10 课 AWS 实验设计</a>（ShopEnv、奖励、指标、预算）· <a href="11-lab-bedrock-rft.html">第 11 课 Bedrock RFT 实操</a></li>
+</ul>
 </main>
 <script src="assets/common.js"></script>
 <script>
+/* 1. wizard */
 const ans={};
 $$('#wizard [data-q]').forEach(b=>b.addEventListener('click',()=>{$$(`#wizard [data-q="${b.dataset.q}"]`).forEach(x=>x.classList.remove('on'));b.classList.add('on');ans[b.dataset.q]=b.dataset.v;wz()}));
 function wz(){if(!ans[1]||!ans[2]||!ans[3]){$('#wz-res').innerHTML='请回答全部三个问题。';return}let r;
-if(ans[2]==='full'&&ans[3]==='yes')r='<b>推荐：自建</b>。智能体部署在 AgentCore Runtime，用 AgentCore RL Toolkit 的 rollout 网关接入 verl 或 slime，训练跑在 SageMaker HyperPod 或 Amazon EKS。可以用任意开源模型、全参数训练、做算法消融。';
-else if(ans[2]==='full')r=`<b>推荐：先托管验证，再半托管</b>。先用 ${ans[1]==='single'?'Bedrock RFT':'SageMaker AI 多轮 RL'} 验证奖励和收益；确实需要更多控制时，用 AgentCore RL Toolkit 加 Tinker 或 SageMaker Training Sessions 这类托管训练后端，避免自己运维 GPU 集群。`;
-else if(ans[1]==='single')r='<b>推荐：Amazon Bedrock RFT</b>。单轮任务加 Lambda 奖励函数，全托管 GRPO，不用管理基础设施。基线接近 0% 时先做 SFT。';
+if(ans[2]==='full'&&ans[3]==='yes')r='<b>推荐：自建</b>。智能体部署在 AgentCore Runtime，用 AgentCore RL Toolkit 的 rollout 网关接入 verl 或 slime，训练跑在 SageMaker HyperPod 或 Amazon EKS。可以用任意开源模型、全参数训练、做算法消融。HyperPod 按所分配容量的时长计费，调试阶段用小集群。';
+else if(ans[2]==='full')r=`<b>推荐：先托管验证，再半托管</b>。先用 ${ans[1]==='single'?'Bedrock RFT':'SageMaker AI 多轮 RL'} 验证奖励和收益；确实需要更多控制时，用 AgentCore RL Toolkit 加 SageMaker 训练会话 API（2026-10 正式发布）或 Tinker 这类托管训练后端，自己写训练循环，避免自己运维 GPU 集群。训练会话 API 的文档示例用 LoRA，是否支持全参数未核实；必须全参数时，要补齐 GPU 运维能力或走自建。`;
+else if(ans[1]==='single')r='<b>推荐：Amazon Bedrock RFT</b>。单轮任务加 Lambda 奖励函数，全托管 GRPO，不用管理基础设施；开源权重模型按 80 美元 / 训练小时计费。基线接近 0% 时先做 SFT。第 11 课是完整实操。';
 else r='<b>推荐：SageMaker AI 多轮 RL + AgentCore Runtime</b>。把现有的 Strands 或 LangGraph 智能体部署到 AgentCore，在轨迹结束时上报奖励，按 token 计费，不需要 GPU 集群。第 10 课的实验就按这条路线设计。';
 $('#wz-res').innerHTML=r}
+
+/* 2. readiness scorecard */
+const RQ=[
+{k:'ver',q:'1. 结果能自动判定成功吗？',o:[
+ ['能用程序判定（最终状态检查、测试、精确匹配）',2,''],
+ ['要靠 LLM 评审，愿意先做校准',1,'note:LLM 评审要先按第 04 课 4.4–4.8 节做校准、留出验证和最终测试，课程里的例子从 1.00 掉到了 0.82'],
+ ['说不清什么算成功',0,'stop:没有可验证的结果，RL 没有可优化的目标；先和领域专家写出成功标准']]},
+{k:'base',q:'2. 候选底座模型的基线成功率？',o:[
+ ['5%–95%',2,''],
+ ['低于 5%，或几乎为 0',0,'fix:基线接近 0，组内没有差异可学；先做 SFT 冷启动、改提示词或拆简单任务（Bedrock 文档：奖励一直为 0 先做 SFT）'],
+ ['高于 95%',0,'stop:提升空间很小，组内也几乎没有差异（Bedrock 文档：高于 95% 可能不需要 RFT）；先分析剩下的错误'],
+ ['还没测',0,'fix:先用 20–50 条任务测基线，并人工读轨迹']]},
+{k:'tasks',q:'3. 任务的数量和多样性？',o:[
+ ['几百个以上，覆盖主要变体，还能留出隐藏集',2,''],
+ ['100 到几百个',1,'note:够做小规模验证（Bedrock 建议先用 100–200 条），正式训练前要补任务生成器'],
+ ['少于 100 个，或高度重复',0,'fix:任务太少容易记住答案，也留不出隐藏集；先做任务生成器（第 4 节）']]},
+{k:'reset',q:'4. 环境能为每条轨迹独立复位吗？',o:[
+ ['能：每条从快照独立启动（SQLite 副本、容器镜像等）',2,''],
+ ['能复位，但要几分钟或要人工',1,'note:复位慢会限制吞吐；按第 07 课第 7 节估算并发'],
+ ['只能连共享环境或生产系统',0,'fix:轨迹之间会互相污染，结果不可复现；先做可复位的沙箱']]},
+{k:'side',q:'5. 工具的副作用能模拟吗？',o:[
+ ['全部可模拟或只读',2,''],
+ ['部分写操作只能打真实的测试服务',1,'note:给这些服务设并发上限和退避重试，估算 QPS（第 07 课第 7 节）'],
+ ['关键写操作只能在生产环境执行',0,'fix:上千条并发轨迹会对生产产生真实写入；先做模拟后端']]},
+{k:'lat',q:'6. 判分一条轨迹要多久？',o:[
+ ['秒级',2,''],
+ ['分钟级（例如跑测试套件）',1,'note:判分会拖长每一步；考虑异步训练（第 07 课）或并行判分'],
+ ['小时级，或需要人工打分',0,'fix:训练需要上万次判分，人工或小时级判分跟不上；先做自动验证器或校准过的评审']]},
+{k:'open',q:'7. 上线时可以用开源权重模型吗？',o:[
+ ['可以',2,''],
+ ['还没定',1,'note:AWS 上的托管和自建 RL 路线训练的都是开源权重模型（Bedrock RFT 另有 Nova 2 Lite），要先和客户确认'],
+ ['必须用闭源 API 模型',0,'stop:托管和自建路线都训练开源权重模型；OpenAI 自助微调正在关停。先用提示词和工具设计优化']]},
+{k:'team',q:'8. 团队配置？',o:[
+ ['有环境工程师和评测负责人，有人懂 RL',2,''],
+ ['有工程师，没有 RL 经验',1,'note:走托管路线，RL 工程师可以兼职；环境和评测仍要有专人'],
+ ['没有能投入的专职人员',0,'fix:环境工程是最大的工作量（第 4 节），至少要 1–2 名环境工程师']]}];
+const RA={};
+$('#rd').innerHTML=RQ.map((r,i)=>`<div class="rq"><b>${r.q}</b>${r.o.map((o,j)=>`<button class="btn" data-r="${i}" data-j="${j}">${o[0]}</button>`).join('')}</div>`).join('');
+$$('#rd [data-r]').forEach(b=>b.addEventListener('click',()=>{$$(`#rd [data-r="${b.dataset.r}"]`).forEach(x=>x.classList.remove('on'));b.classList.add('on');RA[b.dataset.r]=+b.dataset.j;rd()}));
+function rd(){const left=RQ.filter((r,i)=>RA[i]===undefined).length;
+if(left){$('#rd-out').innerHTML=`还差 ${left} 个问题。`;return}
+let s=0;const stop=[],fix=[],note=[];
+RQ.forEach((r,i)=>{const o=r.o[RA[i]];s+=o[1];if(!o[2])return;const [t,msg]=[o[2].slice(0,o[2].indexOf(':')),o[2].slice(o[2].indexOf(':')+1)];({stop,fix,note})[t].push(msg)});
+let v,c;
+if(stop.length){v='暂不建议 RL';c='stop'}else if(fix.length){v='先修复，再开始';c='fix'}else{v='可以开始：先做小规模验证';c='go'}
+const li=a=>a.map(x=>`<li>${x}</li>`).join('');
+$('#rd-out').innerHTML=`<div class="verdict ${c}"><b>结论：${v}</b>　得分 <span class="kpi">${s}</span> / 16</div>`+
+(stop.length?`<p class="bad"><b>硬阻断（不适合 RL 的原因）</b></p><ul>${li(stop)}</ul>`:'')+
+(fix.length?`<p class="warn"><b>先修复</b></p><ul>${li(fix)}</ul>`:'')+
+(note.length?`<p><b>需要注意</b></p><ul>${li(note)}</ul>`:'')+
+(c==='go'?'<p class="ok">下一步：按第 4 节估算环境工作量，按第 10 节的第 3–6 周开始环境工程。</p>':'')}
+
+/* 4.1 environment checklist */
+const EC=[
+['每条轨迹独立复位','从快照启动，轨迹之间不共享可写状态（ShopEnv：每个 rollout 一份 SQLite）'],
+['工具副作用可模拟','写操作只改沙箱里的状态；工具签名和上线一致，上线时再接真实系统（ShopEnv 上线走 AgentCore Gateway）'],
+['任务生成器','能持续产生多样、可验证的任务；人工抽检（ShopEnv 抽检 10%）；和公开基准去重'],
+['隐藏验证器','判分用的目标状态或测试对模型不可见；验证在智能体结束后才运行'],
+['用户模拟器固定','多轮对话里“用户”由固定模型、固定参数扮演，所有对照组共用'],
+['超时分层','单次工具调用、单回合、整条轨迹各有上限（第 07 课第 8 节）'],
+['永远返回奖励','异常时也返回最低分，否则 SageMaker 多轮 RL 会让整个训练任务失败（ShopEnv 返回 −1.5）'],
+['区分环境故障','工具超时、沙箱崩溃单独统计，重试或标记无效，不记成模型失败'],
+['下游限流与凭证','按估算 QPS 设并发上限；共用能自刷新的凭证会话，遇到 403 重新签名'],
+['训练和部署同一份代码','智能体代码不分训练版和上线版；训练期间不重新部署']];
+$('#ec').innerHTML=EC.map((e,i)=>`<label><input type="checkbox" data-i="${i}"><span><b>${e[0]}</b>：${e[1]}</span></label>`).join('');
+function ec(){const n=$$('#ec input').filter(i=>i.checked).length;
+$('#ec-out').innerHTML=`已具备 <b>${n}</b> / ${EC.length} 项。`+(n===EC.length?'<span class="ok">环境可以进入并发压测。</span>':`<span class="warn">还缺 ${EC.length-n} 项；缺“复位”“验证器”“永远返回奖励”中任何一项，都不要开始训练。</span>`)}
+$$('#ec input').forEach(i=>i.onchange=ec);ec();
+
+/* 4.2 environment effort estimator (person-weeks, course assumptions) */
+const EE={ro:[0.1,0.2],wr:[0.2,0.5],reset:{file:[0.1,0.3],db:[0.5,1.5],vm:[1,3]},task:{manual:[0.5,1],tpl:[0.5,1.5],llm:[1,2]},ver:{state:[0.5,1],tests:[1,2],judge:[2,4]},sim:[0.5,1],rel:[0.5,1],conc:[0.5,1.5]};
+const RL={file:'文件快照',db:'数据库或服务快照',vm:'整机或虚拟机镜像',manual:'人工编写',tpl:'模板 + 参数采样',llm:'LLM 合成 + 过滤',state:'检查最终状态',tests:'运行测试套件',judge:'LLM 评审（含校准、留出验证、最终测试）'};
+function envEffort(i){const rows=[];
+const add=(n,r,m=1)=>rows.push([n,r[0]*m,r[1]*m]);
+if(i.ro>0)add(`只读工具 × ${i.ro}`,EE.ro,i.ro);
+if(i.wr>0)add(`写工具 × ${i.wr}（模拟副作用）`,EE.wr,i.wr);
+add(`状态复位：${RL[i.reset]}`,EE.reset[i.reset]);
+add(`任务生成：${RL[i.task]}`,EE.task[i.task]);
+add(`隐藏验证器：${RL[i.ver]}`,EE.ver[i.ver]);
+if(i.sim)add('用户模拟器',EE.sim);
+add('可靠性加固（超时、永远返回奖励、重试、故障统计）',EE.rel);
+if(i.conc>500)add(`高并发（${i.conc} 条）压测与限流`,EE.conc);
+const lo=rows.reduce((a,r)=>a+r[1],0),hi=rows.reduce((a,r)=>a+r[2],0);
+return {rows,lo,hi,wlo:lo/i.ppl,whi:hi/i.ppl}}
+const f1=x=>(Math.round(x*10)/10).toFixed(1);
+function ee(){const g=k=>$('#ee-'+k).value;
+const i={ro:Math.max(0,Math.floor(+g('ro')||0)),wr:Math.max(0,Math.floor(+g('wr')||0)),reset:g('reset'),task:g('task'),ver:g('ver'),sim:g('sim')==='1',conc:+g('conc')||0,ppl:Math.max(1,Math.floor(+g('ppl')||1))};
+const r=envEffort(i),mx=Math.max(...r.rows.map(x=>x[2]));
+$('#ee-out').innerHTML='<table><tr><th>项目</th><th>人周（经验假设）</th><th></th></tr>'+r.rows.map(x=>`<tr><td>${x[0]}</td><td>${f1(x[1])}–${f1(x[2])}</td><td style="width:35%"><span class="bar" style="width:${(x[1]/mx*45).toFixed(1)}%"></span><span class="bar alt" style="width:${((x[2]-x[1])/mx*45).toFixed(1)}%;opacity:.55"></span></td></tr>`).join('')+
+`</table>合计约 <span class="kpi">${f1(r.lo)}–${f1(r.hi)}</span> 人周；${i.ppl} 人并行约 <b>${f1(r.wlo)}–${f1(r.whi)}</b> 周（实际会因为相互依赖更长一些）。<br><span class="mut">区间是本课程的粗略经验假设，不是公开数据。用 LLM 评审做验证器时，第 04 课的校准流程本身就要几轮新样本，这一项最容易超期。</span>`}
+['ro','wr','reset','task','ver','sim','conc','ppl'].forEach(k=>{const e=$('#ee-'+k);e.oninput=ee;e.onchange=ee});ee();
+
+/* 5.2 pass^k */
+function comb(n,k){if(k<0||k>n)return 0;let r=1;for(let i=1;i<=k;i++)r=r*(n-k+i)/i;return r}
+function parseTrials(txt){return txt.split(/\n/).map(l=>l.trim().toLowerCase()).filter(l=>l).map(l=>l.replace(/[^01x]/g,'')).filter(l=>l)}
+function passStats(lines,k){let tr=0,suc=0,inc=0,pk=0,valid=0;
+lines.forEach(l=>{const n=l.length,c=(l.match(/1/g)||[]).length,x=(l.match(/x/g)||[]).length;tr+=n;suc+=c;inc+=x;if(n>=k){pk+=comb(c,k)/comb(n,k);valid++}});
+return {tasks:lines.length,trials:tr,p1:tr?suc/tr:0,pk:valid?pk/valid:0,valid,comp:tr?(tr-inc)/tr:0,succComp:(tr-inc)?suc/(tr-inc):0}}
+let PK=4;
+function pkDraw(){const A=passStats(parseTrials($('#pk-a').value),PK),B=passStats(parseTrials($('#pk-b').value),PK);
+const f=x=>x.toFixed(3),pc=x=>(x*100).toFixed(1)+'%';
+const row=(n,a,b)=>`<tr><td>${n}</td><td>${a}</td><td>${b}</td></tr>`;
+const warn=[A,B].some(s=>s.valid<s.tasks)?`<p class="warn">有任务的试验次数少于 k = ${PK}，这些任务没有计入 pass^${PK}。</p>`:'';
+$('#pk-out').innerHTML='<table><tr><th>指标</th><th>模型 A</th><th>模型 B</th></tr>'+
+row('任务数 / 试验数',`${A.tasks} / ${A.trials}`,`${B.tasks} / ${B.trials}`)+
+row('pass^1（所有试验的成功率）',f(A.p1),f(B.p1))+
+row(`<b>pass^${PK}</b>（同一任务 ${PK} 次全成功）`,`<b>${f(A.pk)}</b>`,`<b>${f(B.pk)}</b>`)+
+row('完成率（没有超时或崩溃）',pc(A.comp),pc(B.comp))+
+row('跑完的试验中的成功率',f(A.succComp),f(B.succComp))+'</table>'+warn}
+seg($$('[data-k]'),b=>{PK=+b.dataset.k;pkDraw()});
+$('#pk-a').oninput=pkDraw;$('#pk-b').oninput=pkDraw;pkDraw();
+</script>
+<script>
+/* 6. managed multi-turn RL estimator */
 const ci=[['steps','训练步数',100],['batch','每步任务数',128],['group','每任务轨迹数 G',8],['pre','每轨迹 prefill tokens',4660],['sam','每轨迹生成 tokens',1514],['trn','每轨迹训练 tokens',6099],['pp','prefill $ / 1M',0.12],['ps','生成 $ / 1M',0.30],['pt','训练 $ / 1M',0.36],['rt','Runtime $ / 千条轨迹',0.75]];
 $('#cost-in').innerHTML=ci.map(([k,l,v])=>`<div><label class="sl">${l}</label><input type="number" step="any" id="c-${k}" value="${v}"></div>`).join('');
-function cost(){const g=k=>+$('#c-'+k).value||0,n=g('steps')*g('batch')*g('group');
-const p=n*g('pre')/1e6*g('pp'),s=n*g('sam')/1e6*g('ps'),t=n*g('trn')/1e6*g('pt'),r=n/1000*g('rt');
-$('#cost-out').innerHTML=`总轨迹数 <b>${n.toLocaleString()}</b> · prefill $${p.toFixed(0)} · 生成 $${s.toFixed(0)} · 训练 $${t.toFixed(0)} · AgentCore Runtime $${r.toFixed(0)}<br>合计约 <span class="kpi">$${(p+s+t+r).toFixed(0)}</span><br><span class="mut">Runtime 单价由公开实验的约 $79 / 105,486 条轨迹折算，实际取决于每条轨迹占用的 vCPU 和内存时长。价格以当前定价页为准。</span>`}
-$$('#cost-in input').forEach(i=>i.oninput=cost);cost();
+function mtrlCost(g){const n=g('steps')*g('batch')*g('group');
+const p=n*g('pre')/1e6*g('pp'),s=n*g('sam')/1e6*g('ps'),t=n*g('trn')/1e6*g('pt'),r=n/1000*g('rt');return {n,p,s,t,r,tok:p+s+t,tot:p+s+t+r}}
+const gc=k=>+$('#c-'+k).value||0;
+function cost(){const c=mtrlCost(gc);
+$('#cost-out').innerHTML=`总轨迹数 <b>${c.n.toLocaleString()}</b> · prefill $${c.p.toFixed(0)} · 生成 $${c.s.toFixed(0)} · 训练 $${c.t.toFixed(0)} · AgentCore Runtime $${c.r.toFixed(0)}<br>合计约 <span class="kpi">$${c.tot.toFixed(0)}</span><br><span class="mut">token 单价是博客写明的发布时 us-east-1 列表价；Runtime 单价由公开实验的约 $79 / 105,486 条轨迹折算，实际取决于每条轨迹占用的 vCPU 和内存时长。价格以当前定价页为准。</span>`;
+compare()}
+
+/* 7. path comparison */
+function pathCosts(g,h){const c=mtrlCost(g),runs=Math.max(1,Math.floor(h('runs')||1));
+const mt=c.tot*runs;
+const br=(h('bh')*h('bp'))*runs+1.95*h('bm')*runs;
+const nh=h('nodes')*h('hh'),price=h('hp');
+const sh=price>0?(nh*price+h('hx')+c.r)*runs:null;
+const be=nh>0?(c.tok-h('hx'))/nh:null;
+return {c,runs,mt,br,nh,price,sh,be}}
+function compare(){const hv=k=>{const v=$('#cc-'+k).value;return v===''?0:(+v||0)};
+const r=pathCosts(gc,hv),m=x=>'$'+Math.round(x).toLocaleString();
+const vals=[r.mt,r.br].concat(r.sh!==null?[r.sh]:[]),mx=Math.max(...vals,1);
+const bar=(x,cl)=>`<span class="bar ${cl}" style="width:${(x/mx*100).toFixed(1)}%"></span>`;
+let h='<table><tr><th>路线</th><th>怎么算（每次）</th><th>'+r.runs+' 次合计</th><th style="width:22%"></th></tr>';
+h+=`<tr><td><b>SageMaker AI 多轮 RL</b></td><td>${r.c.n.toLocaleString()} 条轨迹：token $${r.c.tok.toFixed(2)} + Runtime $${r.c.r.toFixed(2)}</td><td><b>${m(r.mt)}</b></td><td>${bar(r.mt,'')}</td></tr>`;
+h+=`<tr><td><b>Bedrock RFT</b><br><span class="mut">仅当任务能改写成单轮</span></td><td>${hv('bh')} 小时 × $${hv('bp')} + 存储 ${hv('bm')} 月 × $1.95；推理另计</td><td><b>${m(r.br)}</b></td><td>${bar(r.br,'alt')}</td></tr>`;
+h+=`<tr><td><b>SageMaker 训练会话 API</b></td><td>按 token 计费，单价未核实</td><td class="mut">不计算</td><td></td></tr>`;
+h+=r.sh!==null?`<tr><td><b>HyperPod / EKS 自建</b></td><td>${hv('nodes')} 节点 × ${hv('hh')} 小时 = ${r.nh} 节点小时 × $${r.price} + 关联服务 $${hv('hx')} + Runtime $${r.c.r.toFixed(2)}</td><td><b>${m(r.sh)}</b></td><td>${bar(r.sh,'vio')}</td></tr>`
+:`<tr><td><b>HyperPod / EKS 自建</b></td><td>${hv('nodes')} 节点 × ${hv('hh')} 小时 = ${r.nh} 节点小时 × 单价（未填写）+ Runtime $${r.c.r.toFixed(2)}</td><td class="warn">填入节点单价后计算</td><td></td></tr>`;
+h+='</table>';
+h+=r.be!==null?(r.be>0?`<p>盈亏平衡：在 ${r.nh} 节点小时下，每节点小时单价低于 <span class="kpi">$${r.be.toFixed(2)}</span>，自建的训练算力才比托管多轮 RL 的 token 费用（$${r.c.tok.toFixed(2)} / 次）便宜。Runtime 两边相同，不影响比较；GPU 运维人力没有计入。</p>`:`<p class="warn">关联服务费用已经超过托管训练 token 费用，自建在这个工作量下不会更便宜。</p>`):'<p class="warn">分配时长为 0，无法计算盈亏平衡单价。</p>';
+h+='<p class="mut">“假设”标记的默认值不是公开数字：Bedrock RFT 的训练小时数和自建集群的分配时长都要用小规模试跑实测替换。</p>';
+$('#cc-out').innerHTML=h}
+$$('#cost-in input').forEach(i=>i.oninput=cost);
+$$('[id^="cc-"]').filter(e=>e.tagName==='INPUT').forEach(i=>i.oninput=compare);
+cost();
 </script>
 </body></html>
