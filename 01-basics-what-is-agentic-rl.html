@@ -1,10 +1,20 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>01 什么是 Agentic RL</title><link rel="stylesheet" href="assets/style.css"></head>
+<title>01 什么是 Agentic RL</title><link rel="stylesheet" href="assets/style.css">
+<style>
+.pb{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13.5px}
+.pb .lb{width:116px;flex:none;white-space:nowrap}
+.pb .tr{flex:1;height:16px;background:var(--panel2);border:1px solid var(--line);border-radius:4px;position:relative}
+.pb .fl{position:absolute;left:0;top:0;bottom:0;background:var(--acc);border-radius:3px}
+.pb .vl{width:64px;flex:none;text-align:right;font-family:"JetBrains Mono",Menlo,Consolas,monospace;font-size:12.5px}
+table.mini td,table.mini th{padding:4px 7px}
+tr.cur td{background:color-mix(in srgb,var(--acc) 16%,transparent)}
+.step-q{margin:8px 0 2px;font-size:14px}
+</style></head>
 <body><main>
 <span class="badge lv-basic">基础班 · 01</span>
 <h1>什么是 Agentic RL</h1>
-<p class="lead">目标：用 10 分钟建立直觉，知道它和 SFT、普通 RLHF 有什么不同，为什么最近两年突然变得重要。</p>
+<p class="lead">目标：用 10 分钟建立直觉，知道它和 SFT、普通 RLHF 有什么不同，为什么最近两年突然变得重要。本课先用一个三步的小任务手算一遍“状态、动作、奖励、回报”，再把“策略就是大模型”落到具体的概率上，最后讲什么时候不该用 RL。RL 和 SFT、DPO 等后训练方法的关系见 <a href="01b-basics-rl-and-post-training.html">01b</a>，这里不重复。</p>
 
 <h2>1. 强化学习的四个基本概念</h2>
 <p>强化学习研究的是“通过试错学习做决策”。有四个基本对象：</p>
@@ -15,8 +25,41 @@
 <div class="card"><div class="kpi">策略 π</div>“看到 s 时选 a 的概率”</div>
 </div>
 <p>学习目标只有一句话：<b>调整策略，让长期累计奖励的期望最大</b>，写成 <code>J(θ) = E<sub>τ∼π<sub>θ</sub></sub>[R(τ)]</code>，τ 是一条完整的交互轨迹。</p>
+<p>逐个解释这个式子里的符号：</p>
+<ul>
+<li><b>t</b>：第几步，从 1 开始数。s<sub>t</sub>、a<sub>t</sub>、r<sub>t</sub> 分别是第 t 步的状态、动作和这一步拿到的奖励。</li>
+<li><b>轨迹 τ</b>：一次完整尝试的记录，τ = (s<sub>1</sub>, a<sub>1</sub>, r<sub>1</sub>, s<sub>2</sub>, a<sub>2</sub>, r<sub>2</sub>, …)。</li>
+<li><b>回报 R(τ)</b>：这条轨迹上所有奖励的和，R = r<sub>1</sub> + r<sub>2</sub> + … + r<sub>T</sub>。有的教材会给后面的奖励乘一个折扣 γ（0 到 1 之间），LLM 任务里通常取 γ = 1，本课也是。</li>
+<li><b>θ</b>：策略的参数。对大模型来说就是模型的全部权重（或 LoRA 适配器的权重）。π<sub>θ</sub> 表示“参数为 θ 的策略”。</li>
+<li><b>E<sub>τ∼π<sub>θ</sub></sub>[…]</b>：期望，即“按这个策略反复做很多次，R 的平均值”。策略有随机性，同一个任务每次走的路可能不同，所以优化的是平均值。</li>
+</ul>
 
-<h2>2. 把大模型放进这个框架</h2>
+<h2>2. 手算一个小例子：三步换货任务</h2>
+<p>把客服任务缩成三步，每一步只有两三个选项。用户说：“订单 88 的鞋请换成 42 码。”这是一个最小的<b>马尔可夫决策过程（MDP）</b>：每一步看到当前状态，选一个动作，环境给出新状态和奖励。</p>
+<table>
+<tr><th>步骤 t</th><th>状态 s<sub>t</sub>（智能体看到的）</th><th>可选动作 a<sub>t</sub></th></tr>
+<tr><td>1</td><td>用户请求</td><td>调用 get_order(88) 查订单 / 不查，直接往下走</td></tr>
+<tr><td>2</td><td>用户请求 + 第 1 步的结果</td><td>查退换政策 / 跳过</td></tr>
+<tr><td>3</td><td>以上全部</td><td>调用 exchange 执行换货 / 拒绝用户 / 转人工</td></tr>
+</table>
+<p><b>奖励规则（验证器）：</b>只在最后一步给分。数据库里订单 88 确实换成了 42 码，r<sub>3</sub> = 1，否则 r<sub>3</sub> = 0；第 1、2 步的奖励都是 0。换货接口需要商品 ID，只有查过订单才拿得到，所以不查订单直接换货会报错。这种“只看最终结果”的奖励叫<b>结果奖励（outcome reward）</b>。</p>
+<div class="card">
+<div id="mdp-steps"></div>
+<div id="mdp-out" class="res" style="margin-top:10px;overflow-x:auto"></div>
+</div>
+<p>一共 2 × 2 × 3 = 12 条可能的轨迹。下表列出全部，当前选中的那条高亮。</p>
+<div class="grid g2">
+<div style="overflow-x:auto"><table class="mini" id="mdp-all"></table></div>
+<div>
+<p style="margin-top:0"><b>结果奖励带来的问题：信用分配。</b>看两条 R = 1 的轨迹：“查订单 → 查政策 → 换货”和“查订单 → 跳过 → 换货”。最终分数一样，单看一条轨迹，你分不出三步里哪一步是关键。GRPO 这类方法会把同一个优势值 A 分给轨迹里的每一个 token（第 03 课），好步骤和无用步骤被一起奖励。</p>
+<p><b>怎么分出来：靠大量样本求平均。</b>假设策略每一步都随机选（每个选项概率相同），把 12 条轨迹按“某一步选了什么”分组，算平均回报，就能看出哪些决定真正影响结果：</p>
+<table class="mini" id="mdp-avg"></table>
+</div>
+</div>
+<div class="tip">读这张表：第 1 步选“查订单”的平均回报是 1/3，选“不查”是 0，差别很大，说明这一步重要；第 2 步两种选择的平均回报都是 1/6，说明在这个验证器下“查政策”对结果没有影响。这正是 RL 做信用分配的方式：不靠人告诉它哪步关键，而是在很多条轨迹的统计里看出来。代价是需要很多样本。这里只有 12 条可能的轨迹；真实 LLM 的“动作”是一个个 token，词表有数万到十几万个 token（例如 Llama 3 是 128K），可能的轨迹数没法枚举，只能采样。回合级奖励等更细的信用分配方法见<a href="05-intermediate-agentic-techniques.html">第 05 课第 2 节</a>。</div>
+<div class="note"><b>验证器只奖励它检查的东西。</b>这个例子里“查政策”没有分，是因为验证器不检查它。如果业务上必须先核实政策，就要把它写进验证器或奖励，否则模型会学会跳过。这是第 04 课奖励设计的内容。</div>
+
+<h2>3. 把大模型放进这个框架</h2>
 <table>
 <tr><th>RL 概念</th><th>在 LLM 智能体里对应什么</th></tr>
 <tr><td>状态</td><td>到目前为止的全部上下文：系统提示、用户任务、之前的思考、工具调用和返回</td></tr>
@@ -27,13 +70,28 @@
 </table>
 <div class="tip"><b>策略梯度的直觉：</b>让“比平均水平好”的轨迹里那些 token 的概率变大，让“比平均差”的变小。后面所有算法，都是在回答“怎么算出‘比平均好多少’（叫优势 A）”和“怎么稳定地更新参数”。</div>
 
-<h2>3. 动手：切换单轮和多轮</h2>
+<h3>3.1 “策略就是大模型”具体指什么</h3>
+<p>大模型每生成一个 token，先对词表里每个候选 token k 算一个分数 z<sub>k</sub>（叫 <b>logit</b>），再用 softmax 把分数变成概率，然后按概率抽一个出来。带<b>温度 T</b> 的 softmax 是：</p>
+<pre><code>p_k = exp(z_k / T) / Σ_j exp(z_j / T)</code></pre>
+<p>这个 p 就是策略 π<sub>θ</sub>(a | s)：状态 s 是到目前为止的上下文，动作 a 是下一个 token。训练改的是 θ，θ 变了，同样上下文下的 logit z 就变了，概率随之改变。T 不是参数，是采样时的设置：T 小，概率集中到分数最高的 token；T 大，概率更平均。</p>
+<p>下面的例子：上下文是“用户：订单 88 换 42 码。助手：好的，我先帮您”，假设模型给四个候选词的 logit 如下（示例数字）。</p>
+<div class="card">
+<div style="max-width:420px"><label class="sl">温度 T = <b id="v-T">1.00</b></label><input type="range" id="tp-T" min="0.1" max="2" step="0.05" value="1"></div>
+<div id="tp-bars" style="margin-top:8px"></div>
+<div id="tp-out" class="res" style="margin-top:6px"></div>
+<div class="flex" style="margin-top:6px"><button class="btn" id="tp-samp">按当前温度采样 8 次</button><span class="mut" id="tp-seed"></span></div>
+<div id="tp-samples" class="res"></div>
+</div>
+<div class="tip"><b>为什么采样多样性对 RL 很重要：</b>RL 只能从“同一个任务的不同尝试之间的差别”里学习（第 03 课）。T = 1 时，8 次采样全部抽到同一个词的概率是 Σ p<sub>k</sub><sup>8</sup>，约 1.9%；把 T 拖到 0.1，这个概率接近 100%，8 条轨迹一模一样，奖励也一样，这一组就没有学习信号。DeepSeek-R1 论文训练时的采样温度是 1。反过来，T 太大会采出大量胡言乱语，成功率太低同样学不动。上线时用的温度往往更低，所以评测要按上线设置做（第 02 课第 4 节）。</div>
+<p class="mut">这里只看了一个 token。一条轨迹有成百上千个 token，每个位置的小差别会累积，所以整条轨迹的多样性比单个 token 大得多。</p>
+
+<h2>4. 动手：切换单轮和多轮</h2>
 <div class="card">
 <div class="flex"><button class="btn on" id="m-single">单轮 RL</button><button class="btn" id="m-multi">Agentic RL（多轮）</button></div>
 <div id="mode-box" style="margin-top:10px"></div>
 </div>
 
-<h2>4. 为什么它现在变得重要</h2>
+<h2>5. 为什么它现在变得重要</h2>
 <ol>
 <li><b>可验证奖励跑通了。</b>DeepSeek-R1 证明只用“答案对不对”的规则奖励加上 GRPO，就能让模型自己学出长链推理。把“答案对不对”换成“任务办成没有”，就是 Agentic RL。</li>
 <li><b>智能体的瓶颈在决策，不在知识。</b>模型知道每个 API 怎么用，但不知道在你的业务里先查什么、什么时候停、违反政策时要拒绝。这些只能从结果反馈中学。</li>
@@ -41,7 +99,22 @@
 <li><b>基础设施成熟了。</b>开源框架（verl、slime、SkyRL 等）和托管服务（SageMaker AI 多轮 RL、Bedrock RFT 等）把门槛从“自研分布式 RL 系统”降到了“写环境和奖励函数”。</li>
 </ol>
 
-<h2>5. 小测验</h2>
+<h2>6. 读公开结果时要带的几个问题</h2>
+<p>上一节的数字是真的，但要读完整。下表的数字都来自一手来源（见第 9 节），我们没有复现。三个标题数字已在第 08 课第 4 节收录；Airline、Retail 两个领域的分数取自同一篇博客的同一张表。</p>
+<table>
+<tr><th>结果</th><th>来源报告的数字</th><th>读的时候要注意</th></tr>
+<tr><td>Qwen3-30B-A3B-Thinking，τ²-Bench 客服（AgentCore RL Toolkit 博客）</td><td>Telecom 0.38 → SFT 后 0.90 → RL 后 0.96；同一张表里 Airline 0.62 → 0.80，Retail 0.78 → 0.87</td><td>大部分提升在 SFT 阶段已经拿到，RL 在 Telecom 上又加了 6 个点。三个领域里 Telecom 的涨幅最大，标题数字选的是它。训练任务从同一套工具、数据库和政策文档合成，结论只适用于这个环境。好的一面：每道题跑了 5 次，“总是成功”的比例从 19.3% 升到 89.5%</td></tr>
+<tr><td>Qwen3-Coder-30B-A3B，MigrationBench Java 迁移（AgentCore RL Toolkit × rLLM）</td><td>43% → 76%</td><td>仓库来自 GitHub 公开项目，底座可能在预训练时见过；看同一底座的前后差值，比看绝对分可靠</td></tr>
+<tr><td>gpt-oss-20b，Wordle（SageMaker AI 多轮 RL 博客）</td><td>默认推理强度、temperature 1.0 下 61% → 84%</td><td>作者说明这是教学示例。同一个模型，训练曲线（temperature 0）只显示 37%，评测设置不同，数字差很多（第 02 课第 4 节）</td></tr>
+</table>
+<p>通用的三个问题：前后是不是同一个底座、同一套评测设置；跑了几次、方差多大；测试和训练是不是同一个环境。第 08 课第 7 节有完整的检查清单。</p>
+
+<h2>7. 什么时候不该用 RL</h2>
+<p>RL 贵，也难调。下面 6 个问题里只要有一个命中“先别做”，就先处理它。依据是 Amazon Bedrock RFT 文档的最佳实践（奖励一直为 0 先做 SFT；高于 95% 可能不需要 RFT）和本课程第 01b、04、09 课。完整的 16 分评分卡在<a href="09-build-your-own.html">第 09 课第 2 节</a>。</p>
+<div class="card" id="nr"></div>
+<div id="nr-out" class="card" style="background:var(--panel2)"></div>
+
+<h2>8. 小测验</h2>
 <div class="quiz" data-answer="2"><b>下面哪个任务最适合用 Agentic RL？</b><br>
 <button class="btn opt">A. 把一段英文翻译成中文，有大量人工译文</button>
 <button class="btn opt">B. 给一张图片写一句描述</button>
@@ -51,6 +124,27 @@
 <button class="btn opt">A. 需要，否则模型不知道怎么做</button>
 <button class="btn opt">B. 不需要，只需要任务、环境和判定结果的打分器</button>
 <div class="qe">正确答案 B。轨迹由模型自己和环境交互产生，只需要能判断结果好坏。这正是它比 SFT 更适合“正确做法不唯一”的任务的原因。不过如果模型一开始完全不会，通常会先用少量示范做 SFT 冷启动（见第 05 课）。</div></div>
+<div class="quiz" data-answer="1"><b>在第 2 节的三步换货例子里，“查订单 → 跳过政策 → 换货”和“查订单 → 查政策 → 换货”的回报分别是多少？这说明什么？</b><br>
+<button class="btn opt">A. 0 和 1：跳过政策会被验证器扣分</button>
+<button class="btn opt">B. 1 和 1：结果奖励只看最终数据库状态，单条轨迹分不出哪一步关键，要靠很多条轨迹的统计来分配功劳</button>
+<button class="btn opt">C. 1/3 和 1/6：回报就是平均值</button>
+<div class="qe">正确答案 B。两条都把订单换成了 42 码，R 都是 1。1/3、1/6 是随机策略下“按某一步的选择分组”的平均回报，不是单条轨迹的回报。如果业务要求必须查政策，要把它写进验证器。</div></div>
+<div class="quiz" data-answer="0"><b>把采样温度 T 调到接近 0，对 GRPO 训练有什么影响？</b><br>
+<button class="btn opt">A. 同一任务的 8 条轨迹几乎一样，奖励也一样，组内没有差别，学习信号接近 0</button>
+<button class="btn opt">B. 训练更稳定，因为每次都选最可能的 token</button>
+<button class="btn opt">C. 没有影响，温度只影响上线</button>
+<div class="qe">正确答案 A。T 接近 0 时 softmax 几乎把全部概率给分数最高的 token，采样退化成贪心解码。RL 需要多样的尝试才能比较好坏，所以训练采样通常用 T = 1（DeepSeek-R1 论文就是 1）。</div></div>
+
+<h2>9. 参考资料</h2>
+<ul>
+<li>DeepSeek-AI. <a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning</a>（arXiv 2501.12948，v2 2026-01-04；Nature 645, 633–638）。规则奖励 + GRPO；训练 rollout 的采样温度为 1。</li>
+<li>AgentCore RL Toolkit 项目博客：<a href="https://awslabs.github.io/agentcore-rl-toolkit/blog/data-synthesis-v0/">Growing verifiable training tasks from the environment alone</a>（2026-09-15）。τ²-Bench 三个领域的 zero-shot / SFT / RL 分数，Telecom 每题 5 次的一致性分析。2026-11-11 访问。</li>
+<li><a href="https://github.com/awslabs/agentcore-rl-toolkit">awslabs/agentcore-rl-toolkit</a> README。MigrationBench 43% → 76%（与 rLLM 合作）、τ²-Bench Telecom 38% → 96%。2026-11-11 访问。</li>
+<li>AWS 博客：<a href="https://aws.amazon.com/blogs/machine-learning/multi-turn-reinforcement-learning-on-amazon-sagemaker-ai-a-hands-on-guide/">Multi-Turn Reinforcement Learning on Amazon SageMaker AI: A hands-on guide</a>。Wordle 61% → 84%（服务设置）与训练曲线 37%。2026-11-11 访问。</li>
+<li>AWS 文档：<a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Customize a model with reinforcement fine-tuning in Amazon Bedrock</a>。最佳实践：先用 100–200 条样本验证奖励；奖励一直为 0 先做 SFT；高于 95% 可能不需要 RFT。2026-11-11 访问。</li>
+<li>Llama Team, Meta. <a href="https://arxiv.org/abs/2407.21783">The Llama 3 Herd of Models</a>（arXiv 2407.21783）。128K token 的词表。</li>
+<li>本课程：<a href="01b-basics-rl-and-post-training.html">01b RL 与后训练</a>、<a href="03-basics-grpo.html">03 GRPO 入门</a>、<a href="04-intermediate-reward-design.html">04 奖励设计</a>、<a href="08-landscape.html">08 前沿玩家与方案</a>、<a href="09-build-your-own.html">09 客户自建</a>。</li>
+</ul>
 </main>
 <script src="assets/common.js"></script>
 <script>
@@ -61,5 +155,71 @@ multi:`<div class="grid g2"><div><b>形式：</b>部分可观测马尔可夫决�
 <div class="card"><span class="tok t-usr">用户：把订单 88 的鞋换成 42 码</span><br>→ <span class="tok t-gen">调用 get_order(88)</span> → <span class="tok t-tool">已发货 12 天，41 码</span><br>→ <span class="tok t-gen">查政策：可换</span> → <span class="tok t-gen">向用户确认</span> → <span class="tok t-usr">好的</span><br>→ <span class="tok t-gen">exchange_items(88, 42)</span> → <span class="tok t-tool">成功</span><br>→ <span class="tok t-tool">验证器：数据库状态正确，r=1</span></div></div>`};
 function setMode(k){$('#mode-box').innerHTML=modes[k]}
 seg([$('#m-single'),$('#m-multi')],b=>setMode(b.id==='m-single'?'single':'multi'));setMode('single');
+
+/* 2. toy MDP */
+const MDP=[
+{q:'第 1 步：用户说“订单 88 的鞋请换成 42 码”',o:[['q','调用 get_order(88) 查订单'],['n','不查，直接往下走']]},
+{q:'第 2 步',o:[['p','查退换政策'],['s','跳过']]},
+{q:'第 3 步',o:[['x','调用 exchange 执行换货'],['r','拒绝用户'],['h','转人工']]}];
+const LBL={q:'查订单',n:'不查订单',p:'查政策',s:'跳过政策',x:'执行换货',r:'拒绝',h:'转人工'};
+const mdpReward=p=>(p[0]==='q'&&p[2]==='x')?1:0;
+function envText(t,p){
+if(t===0)return p[0]==='q'?'工具返回：已发货 12 天，41 码，商品 ID 5521':'没有新信息';
+if(t===1)return p[1]==='p'?'政策：签收 30 天内可换尺码':'没有新信息';
+if(p[2]==='x')return p[0]==='q'?'换货成功，数据库已更新为 42 码':'接口报错：缺少商品 ID，未执行';
+return p[2]==='r'?'对话结束，订单未变':'已转人工，订单未变'}
+let mdpPath=['q','p','x'];
+$('#mdp-steps').innerHTML=MDP.map((s,t)=>`<div class="step-q"><b>${s.q}</b></div><div class="flex">${s.o.map(([k,txt])=>`<button class="btn${mdpPath[t]===k?' on':''}" data-t="${t}" data-k="${k}">${txt}</button>`).join('')}</div>`).join('');
+$$('#mdp-steps .btn').forEach(b=>b.onclick=()=>{const t=+b.dataset.t;mdpPath[t]=b.dataset.k;$$(`#mdp-steps .btn[data-t="${t}"]`).forEach(x=>x.classList.toggle('on',x===b));mdpDraw()});
+const ALL=[];MDP[0].o.forEach(a=>MDP[1].o.forEach(b=>MDP[2].o.forEach(c=>ALL.push([a[0],b[0],c[0]]))));
+function mdpDraw(){
+const p=mdpPath,R=mdpReward(p);
+let h='<table class="mini"><tr><th>t</th><th>动作 a<sub>t</sub></th><th>环境返回</th><th>奖励 r<sub>t</sub></th></tr>';
+for(let t=0;t<3;t++)h+=`<tr><td>${t+1}</td><td>${LBL[p[t]]}</td><td>${envText(t,p)}</td><td>${t<2?0:R}</td></tr>`;
+h+=`</table>回报 R = r<sub>1</sub> + r<sub>2</sub> + r<sub>3</sub> = 0 + 0 + ${R} = <span class="kpi">${R}</span> `+(R?'<span class="ok">任务办成。</span>':'<span class="bad">任务没办成。</span>');
+$('#mdp-out').innerHTML=h;
+$('#mdp-all').innerHTML='<tr><th>#</th><th>第 1 步</th><th>第 2 步</th><th>第 3 步</th><th>R</th></tr>'+ALL.map((q,i)=>`<tr class="${q.join()===p.join()?'cur':''}"><td>${i+1}</td><td>${LBL[q[0]]}</td><td>${LBL[q[1]]}</td><td>${LBL[q[2]]}</td><td>${mdpReward(q)}</td></tr>`).join('');
+const tot=ALL.reduce((s,q)=>s+mdpReward(q),0)/ALL.length;
+let a='<tr><th>哪一步</th><th>选了什么</th><th>平均回报</th><th>比整体平均 '+frac(tot)+' 高多少</th></tr>';
+MDP.forEach((s,t)=>s.o.forEach(([k])=>{const sub=ALL.filter(q=>q[t]===k);const m=sub.reduce((x,q)=>x+mdpReward(q),0)/sub.length;const d=m-tot;
+a+=`<tr><td>第 ${t+1} 步</td><td>${LBL[k]}</td><td>${frac(m)}</td><td class="${d>1e-9?'ok':d<-1e-9?'bad':''}">${d>1e-9?'+':''}${frac(d)}</td></tr>`}));
+$('#mdp-avg').innerHTML=a}
+function frac(x){const s=x<0?'−':'';x=Math.abs(x);if(x<1e-9)return '0';for(const d of [1,2,3,4,6,12]){const n=Math.round(x*d);if(Math.abs(n/d-x)<1e-9)return s+(d===1?n:n+'/'+d)}return s+x.toFixed(3)}
+mdpDraw();
+
+/* 3.1 temperature softmax */
+const TOK=[['查询',2.0],['办理',1.0],['确认',0.5],['转接',-1.0]];
+function softmax(z,T){const m=Math.max(...z.map(v=>v/T));const e=z.map(v=>Math.exp(v/T-m));const s=e.reduce((a,b)=>a+b,0);return e.map(v=>v/s)}
+function rng(seed){let a=seed>>>0;return()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}}
+let tpSeed=1;
+function tpDraw(){const T=+$('#tp-T').value;$('#v-T').textContent=T.toFixed(2);
+const p=softmax(TOK.map(x=>x[1]),T);
+$('#tp-bars').innerHTML=TOK.map(([w,z],i)=>`<div class="pb"><span class="lb">“${w}” z=${z.toFixed(1)}</span><span class="tr"><span class="fl" style="width:${(p[i]*100).toFixed(1)}%"></span></span><span class="vl">${(p[i]*100).toFixed(1)}%</span></div>`).join('');
+const H=-p.reduce((s,v)=>s+(v>0?v*Math.log(v):0),0);const same=p.reduce((s,v)=>s+v**8,0);
+$('#tp-out').innerHTML=`熵 H = −Σ p log p = <b>${H.toFixed(3)}</b> nats（四个词完全平均时最大，为 ln 4 = 1.386）。8 次采样全部是同一个词的概率 Σ p<sub>k</sub><sup>8</sup> = <b>${(same*100).toFixed(1)}%</b>。`;
+const r=rng(tpSeed);const out=[];for(let i=0;i<8;i++){let u=r(),k=0;while(k<p.length-1&&u>=p[k]){u-=p[k];k++}out.push(k)}
+const distinct=new Set(out).size;
+$('#tp-samples').innerHTML='采样结果：'+out.map(k=>`<span class="tok t-gen">${TOK[k][0]}</span>`).join('')+`，共 <b>${distinct}</b> 种不同的词。`;
+$('#tp-seed').textContent='种子 '+tpSeed}
+$('#tp-T').oninput=tpDraw;$('#tp-samp').onclick=()=>{tpSeed=(tpSeed*7919+13)%100000;tpDraw()};tpDraw();
+
+/* 7. when not to use RL */
+const NR=[
+{q:'结果能用程序（数据库状态、单元测试、答案比对）或校准过的评审自动判断吗？',bad:'n',msg:'先建验证器或评测集。没有可靠的打分，RL 会去优化一个错的目标（第 04 课）。'},
+{q:'基础模型在这个任务上的奖励是否一直为 0？',bad:'y',msg:'先做 SFT 冷启动或把任务拆简单。一组轨迹全失败时没有学习信号（Bedrock 文档；第 03 课）。'},
+{q:'基础模型的成功率是否已经高于 95%？',bad:'y',msg:'RL 可能没必要：提升空间小，而且大多数组全对，也没有信号（Bedrock 文档）。'},
+{q:'目标只是输出格式或风格，并且有大量现成示范？',bad:'y',msg:'用 SFT，更便宜也更稳（第 01b 课第 7 节）。'},
+{q:'改提示词、工具描述或补充检索就能解决主要错误吗？',bad:'y',msg:'先做这些便宜的改动，再看剩下的错误值不值得训练。（经验建议，不是某份文档的结论。）'},
+{q:'能搭一个可复位、可并发、不碰生产写操作的环境吗？',bad:'n',msg:'先做环境。上千条并发轨迹不能直接打到生产系统（第 09 课第 4 节）。'}];
+const nrAns={};
+$('#nr').innerHTML=NR.map((x,i)=>`<p style="margin:6px 0"><b>${i+1}. ${x.q}</b><br><button class="btn" data-i="${i}" data-v="y">是</button><button class="btn" data-i="${i}" data-v="n">否</button></p>`).join('');
+$$('#nr .btn').forEach(b=>b.onclick=()=>{const i=+b.dataset.i;nrAns[i]=b.dataset.v;$$(`#nr .btn[data-i="${i}"]`).forEach(x=>x.classList.toggle('on',x===b));nrDraw()});
+function nrDraw(){const n=Object.keys(nrAns).length;const hits=NR.map((x,i)=>nrAns[i]===x.bad?i:-1).filter(i=>i>=0);
+let h=`已回答 ${n} / ${NR.length} 题。`;
+if(hits.length)h+=`<br><span class="bad"><b>先别做 RL，先处理：</b></span><ul>${hits.map(i=>`<li>第 ${i+1} 题：${NR[i].msg}</li>`).join('')}</ul>`;
+else if(n===NR.length)h+='<br><span class="ok"><b>没有命中阻断项。</b></span>下一步用<a href="09-build-your-own.html">第 09 课第 2 节</a>的评分卡打分，再按第 11 课的方法测基线。';
+else h+='<br>回答全部问题后给出结论；命中阻断项会立刻显示。';
+$('#nr-out').innerHTML=h}
+nrDraw();
 </script>
 </body></html>
