@@ -95,7 +95,7 @@ tr.cur td{background:color-mix(in srgb,var(--acc) 16%,transparent)}
 <ol>
 <li><b>可验证奖励跑通了。</b>DeepSeek-R1 证明只用“答案对不对”的规则奖励加上 GRPO，就能让模型自己学出长链推理。把“答案对不对”换成“任务办成没有”，就是 Agentic RL。</li>
 <li><b>智能体的瓶颈在决策，不在知识。</b>模型知道每个 API 怎么用，但不知道在你的业务里先查什么、什么时候停、违反政策时要拒绝。这些只能从结果反馈中学。</li>
-<li><b>小模型经过 RL 能在垂直任务上追上大模型。</b>AWS 开源的 AgentCore RL Toolkit 公开结果：Qwen3-30B-A3B 在 τ²-Bench Telecom 客服任务上从 38% 提升到 96%（SFT + RL）；Java 代码迁移任务从 43% 提升到 76%。推理更便宜，也能私有化部署。</li>
+<li><b>小模型经过 RL 能在垂直任务上追上大模型。</b>AWS 开源的 AgentCore RL Toolkit 公开结果：Qwen3-30B-A3B-Thinking 在 τ²-Bench Telecom 客服任务上从 38% 提升到 96%（SFT + RL，训练和测试在同一个环境里，见第 08 课第 4 节的说明）；Qwen3-Coder-30B-A3B 在 Java 代码迁移任务上从 43% 提升到 76%。推理更便宜，也能私有化部署。</li>
 <li><b>基础设施成熟了。</b>开源框架（verl、slime、SkyRL 等）和托管服务（SageMaker AI 多轮 RL、Bedrock RFT 等）把门槛从“自研分布式 RL 系统”降到了“写环境和奖励函数”。</li>
 </ol>
 
@@ -149,7 +149,7 @@ tr.cur td{background:color-mix(in srgb,var(--acc) 16%,transparent)}
 <script src="assets/common.js"></script>
 <script>
 const modes={
-single:`<div class="grid g2"><div><b>形式：</b>上下文赌博机。一个 prompt → 一个回答 → 一个分数。<br><b>状态转移：</b>没有，回答完就结束。<br><b>信用分配：</b>整段回答共享一个分数，问题不大。<br><b>典型：</b>数学题、代码题、Bedrock RFT、OpenAI RFT。</div>
+single:`<div class="grid g2"><div><b>形式：</b>上下文赌博机。一个 prompt → 一个回答 → 一个分数。<br><b>状态转移：</b>没有，回答完就结束。<br><b>信用分配：</b>整段回答共享一个分数，问题不大。<br><b>典型：</b>数学题、代码题、Bedrock RFT（OpenAI 的 RFT 随自助微调平台逐步下线，见第 08 课）。</div>
 <div class="card"><span class="tok t-usr">用户：求 17×23</span> → <span class="tok t-gen">思考……答案 391</span> → <span class="tok t-tool">验证器：正确，r=1</span></div></div>`,
 multi:`<div class="grid g2"><div><b>形式：</b>部分可观测马尔可夫决策过程（POMDP）。模型只能看到工具返回的信息，看不到环境全貌。<br><b>状态转移：</b>每次工具调用都会改变环境（文件、数据库、网页），结果可能出错。<br><b>信用分配：</b>最终成败要归因到几十个回合中的某几步，难。<br><b>新增难点：</b>上下文膨胀、轨迹时长长尾、沙箱隔离、工具输出不能参与训练。</div>
 <div class="card"><span class="tok t-usr">用户：把订单 88 的鞋换成 42 码</span><br>→ <span class="tok t-gen">调用 get_order(88)</span> → <span class="tok t-tool">已发货 12 天，41 码</span><br>→ <span class="tok t-gen">查政策：可换</span> → <span class="tok t-gen">向用户确认</span> → <span class="tok t-usr">好的</span><br>→ <span class="tok t-gen">exchange_items(88, 42)</span> → <span class="tok t-tool">成功</span><br>→ <span class="tok t-tool">验证器：数据库状态正确，r=1</span></div></div>`};
