@@ -2,7 +2,7 @@
 const PAGES = [
   { f: 'index.html', t: '学习路线图', lv: '' },
   { f: '01-basics-what-is-agentic-rl.html', t: '01 什么是 Agentic RL', lv: '基础班' },
-  { f: '01b-basics-rl-and-post-training.html', t: '01b RL 与后训练', lv: '基础班' },
+  { f: '01b-basics-rl-and-post-training.html', t: '01b RL 和后训练的关系', lv: '基础班' },
   { f: '02-basics-training-loop.html', t: '02 一次训练迭代', lv: '基础班' },
   { f: '03-basics-grpo.html', t: '03 GRPO 入门', lv: '基础班' },
   { f: '04-intermediate-reward-design.html', t: '04 奖励设计', lv: '中级班' },

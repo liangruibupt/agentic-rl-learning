@@ -260,7 +260,7 @@ reward = 成功 − λ · 违规
 
 <h3>5.4 落地时必须做的两件事</h3>
 <div class="grid g2">
-<div class="card"><b>分项记录、分项监控</b><p>Bedrock RFT 的奖励 Lambda 可以返回 <code>reward_components</code>（第 11 课示例已经这样做），自建时把各项写进日志。总奖励在涨，可能是成功率在涨，也可能只是回合数在降、评审分在涨。只看总分，你不知道模型在优化什么。</p></div>
+<div class="card"><b>分项记录、分项监控</b><p>Bedrock RFT 的奖励 Lambda 可以在 <code>metrics_list</code> 里返回分项（<code>type</code> 为 <code>"Metric"</code>，第 11 课示例已经这样做），自建时把各项写进日志。总奖励在涨，可能是成功率在涨，也可能只是回合数在降、评审分在涨。只看总分，你不知道模型在优化什么。</p></div>
 <div class="card"><b>用帕累托前沿做决策</b><p>用 3–4 组不同权重或 λ 各训一次，在隐藏集上画“成功率 vs 违规率”的散点，找拐点。拿这张图和客户讨论选哪个点，比讨论“权重设多少”有效得多：客户选的是业务结果，不是超参数。第 10 课的 A5 和 A5′ 消融组就是图上的两个点。</p></div>
 </div>
 <pre><code>违规率 ↑                                       （数字为示意）

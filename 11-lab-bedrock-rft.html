@@ -57,46 +57,72 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <h2>3. 数据格式</h2>
 <p>运行 <code>python make_dataset.py</code> 生成 400 条训练数据和 150 条测试数据（仓库里已有用 <code>--seed 7</code> 生成的两个文件）。每行一条记录：</p>
 <pre><code>{"messages": [
-   {"role": "system", "content": "你是电商客服工单分拣助手……priority 规则：1. 提到投诉、律师、报警、曝光，或 amount &gt; 1000 → high ……"},
-   {"role": "user",   "content": "工单内容：订单A10234的商品有质量问题，请退我1299块钱。再不处理我就投诉！"}],
- "reference_answer": {"category": "refund", "priority": "high", "order_id": "A10234", "amount": 1299},
- "task_id": "ticket-00042"}</code></pre>
+   {"role": "system", "content": "你是电商客服工单分拣助手……order_id 统一写成大写字母加数字……amount 换算成数字……priority 规则：1. 提到投诉、律师、报警、曝光（英文 complaint、lawyer、police、expose 同样算），或 amount &gt; 1000 → high ……"},
+   {"role": "user",   "content": "工单内容：在吗？订单A57717的机械键盘有质量问题，请退我¥1001。再不处理我就投诉！"}],
+ "reference_answer": {"category": "refund", "priority": "high", "order_id": "A57717", "amount": 1001},
+ "task_id": "ticket-train-00035", "template_id": "refund/train1", "slice": "train",
+ "formats": "amt:yen,oid:plain", "wait_days": null}</code></pre>
 <ul>
 <li><code>messages</code> 和 <code>reference_answer</code> 必填。参考答案只给奖励函数用，模型看不到。</li>
-<li>其他字段（如 <code>task_id</code>、<code>difficulty</code>）会放在 metadata 里一起传给奖励函数。</li>
-<li>规则写进系统提示，任务才是“可学的”：奖励只告诉模型对不对，规则本身要让模型能看到。</li>
+<li>其他字段（这里是 <code>task_id</code>、<code>template_id</code>、<code>slice</code>、<code>formats</code>、<code>wait_days</code>）会放在 metadata 里一起传给奖励函数。奖励函数不用它们；<code>check_dataset.py</code> 和 <code>evaluate.py</code> 用它们统计模板重叠、按切片报告结果。</li>
+<li>规则写进系统提示，任务才是“可学的”：奖励只告诉模型对不对，规则本身要让模型能看到。测试集里有中文数字金额、带连字符的订单号、“两周”“半个月”这类写法，所以系统提示也写明了换算规则（订单号去掉空格、连字符和 #；金额换算成数字；一周按 7 天、半个月按 15 天、一个月按 30 天）。奖励函数比较订单号时同样忽略大小写、空格、连字符和 #。</li>
 </ul>
 
 <h2>4. 数据集设计：切分、难度、泄漏、规模</h2>
 <h3>4.1 三份数据各管什么</h3>
 <table>
 <tr><th>切分</th><th>本实操</th><th>用途</th><th>规则</th></tr>
-<tr><td>训练集</td><td><code>train.jsonl</code>，400 条</td><td>上传给 RFT</td><td>100–20K 条（用户指南）</td></tr>
-<tr><td>开发集</td><td><code>dev.jsonl</code>，可选 100 条（<code>--dev 100</code>）</td><td>挑检查点、调提示词和奖励</td><td>可以反复看。开源权重 API 是否接受验证集文件<b>未核实</b>，所以用 <code>evaluate.py</code> 在检查点上跑它</td></tr>
-<tr><td>测试集</td><td><code>test.jsonl</code>，150 条</td><td>最终对比基线和微调模型</td><td>训练前冻结，只跑一次，看完结果不再改奖励或提示词（第 04 课 4.7–4.8 的教训）</td></tr>
+<tr><td>训练集</td><td><code>train.jsonl</code>，400 条（每类 80 条）</td><td>上传给 RFT</td><td>100–20K 条（用户指南）</td></tr>
+<tr><td>开发集</td><td><code>dev.jsonl</code>，可选 100 条（<code>--dev 100</code>）</td><td>挑检查点、调提示词和奖励</td><td>可以反复看。用的是训练集和测试集都没有的句式。开源权重 API 是否接受验证集文件<b>未核实</b>，所以用 <code>evaluate.py</code> 在检查点上跑它</td></tr>
+<tr><td>测试集</td><td><code>test.jsonl</code>，150 条（每类 30 条），分两个切片：<code>new_phrasing</code> 100 条、<code>ood</code> 50 条</td><td>最终对比基线和微调模型，两个切片分开报告</td><td>训练前冻结，只跑一次，看完结果不再改奖励或提示词（第 04 课 4.7–4.8 的教训）</td></tr>
 </table>
-<p><code>make_dataset.py</code> 先生成训练集和测试集，再生成开发集，所以加上 <code>--dev</code> 不会改变已有的两个文件（已用 <code>cmp</code> 逐字节核对）。</p>
+<p>三份数据各用一个独立的随机数流（种子为 <code>"7-train"</code>、<code>"7-test"</code>、<code>"7-dev"</code>），所以加上 <code>--dev</code> 不会改变已有的两个文件（已用 <code>cmp</code> 逐字节核对，<code>test_make_dataset.py</code> 里也有这条测试）。</p>
 
-<h3>4.2 用 <code>check_dataset.py</code> 检查</h3>
-<pre><code>python check_dataset.py --train train.jsonl --test test.jsonl [--dev dev.jsonl]</code></pre>
-<p>它做四件事：① 每行的格式（messages、参考答案的取值、订单号是否出现在原文里）；② 训练集条数是否在 100–20,000 之间；③ <b>泄漏</b>：把工单原文做 NFKC、转小写、去空白和标点后比较，测试集或开发集里只要有一条和训练集相同就报错；④ 难度和标签分布：按“哪条 priority 规则决定了答案”给每条打标签。对仓库里的数据，结果是：</p>
+<h3>4.2 生成器：组合式生成，按构造切分</h3>
+<p>上一版生成器每类只有 3 个固定句子，只替换数字和订单号，再随机切分。结果是测试集几乎全是训练集见过的句子（见 4.3 的“改版前”一列）。现在的 <code>make_dataset.py</code> 把一条工单拆成几部分分别抽取：</p>
+<pre><code>开场白 + 背景句 + 核心句式（按类别）+ 价格从句（部分换货单）+ 结尾语气 + 噪声
+槽位：订单号、金额、等待时间、商品、原因、手机尾号、数量</code></pre>
 <table>
-<tr><th>统计</th><th class="num">训练集（400）</th><th class="num">测试集（150）</th><th>说明</th></tr>
-<tr><td>规则 1：投诉等关键词 → high</td><td class="num">92</td><td class="num">32</td><td rowspan="5">priority 的决定规则。规则 1–2 需要推理，规则 3 是默认值</td></tr>
-<tr><td>规则 1：金额 &gt; 1000 → high</td><td class="num">35</td><td class="num">14</td></tr>
-<tr><td>规则 2：金额 200–1000 → medium</td><td class="num">52</td><td class="num">24</td></tr>
-<tr><td>规则 2：物流等待 &gt; 7 天 → medium</td><td class="num">53</td><td class="num">15</td></tr>
-<tr><td>规则 3：其他 → low</td><td class="num">168</td><td class="num">65</td></tr>
-<tr><td>陷阱：金额正好 200 或 1000（“含”边界）</td><td class="num">29</td><td class="num">15</td><td rowspan="2">打上任一陷阱标签算“难”</td></tr>
-<tr><td>陷阱：换货单带金额（amount 可有可无）</td><td class="num">49</td><td class="num">21</td></tr>
-<tr><td>易 / 中 / 难</td><td class="num">153 / 177 / 70</td><td class="num">59 / 62 / 29</td><td>难题占比 17.5% / 19.3%，两边接近</td></tr>
-<tr><td>与训练集完全相同的工单</td><td class="num">—</td><td class="num">0</td><td>没有直接泄漏</td></tr>
-<tr><td>与训练集同模板（只差数字和订单号）</td><td class="num">—</td><td class="num">94.7%</td><td class="warn">WARN：测试集只能衡量同分布准确率</td></tr>
-<tr><td>account / other 类别</td><td class="num">21 / 22</td><td class="num">1 / 2</td><td class="warn">WARN：测试集无法衡量这两类</td></tr>
+<tr><th>组成部分</th><th>训练集 / 开发集</th><th>只在测试集出现</th></tr>
+<tr><td>核心句式</td><td>每类 7 个给训练集，另 2 个给开发集</td><td>每类 3 个留给测试集；<code>ood</code> 切片另有每类 2 个英文句式</td></tr>
+<tr><td>订单号写法</td><td><code>A10234</code></td><td><code>a10234</code>、<code>A-10234</code>、<code>#A10234</code></td></tr>
+<tr><td>金额写法</td><td><code>1299元</code>、<code>1299块</code>、<code>¥1299</code>（含 58.5、1000.5 这类小数）</td><td><code>一千二百九十九元</code>、<code>1,299.00元</code>、<code>RMB 1299</code></td></tr>
+<tr><td>等待时间</td><td><code>10天</code></td><td><code>十天</code>、<code>两周</code>、<code>半个月</code>、<code>一个月</code>，英文 <code>two weeks</code></td></tr>
+<tr><td>投诉类语气（规则 1 关键词）</td><td>“再不处理我就投诉！”等 4 句</td><td>“已经准备向消费者协会投诉了。”等 4 句；英文 “I will file a complaint.” 等</td></tr>
+<tr><td>噪声</td><td>错别字（定单、麻凡、包过……，不碰关键词和槽位）、背景句、不含关键词的不满（“太失望了。”，不提高优先级）</td><td>中英混写（account、refund、tracking、ASAP）、整句英文、4 种训练集没有的商品</td></tr>
 </table>
-<div class="note"><b>检查器发现的两个问题（生成器本身的缺陷，留作练习）：</b>① account 和 other 的模板里没有订单号和金额，每类最多只有 24 种不同文本（3 个模板 × 8 种结尾），去重后在训练集里就用完了，测试集分别只剩 1 条和 2 条，所以 category 准确率实际上只测了三个类别。② 测试集 94.7% 的工单和训练集用同一个模板，RFT 在这个测试集上的提升，<b>不能</b>说明模型学会了没见过的写法。改法：给 account / other 增加带变量的模板；另外写一批训练集里没有的句式（或英文工单）做一个“分布外”测试集，单独报告。</div>
+<p>每份数据里五个类别条数相同。<code>ood</code> 切片的每一条都至少用了一种训练集没有的写法，生成时就检查。account 和 other 也有了带变量的句式（订单号、手机尾号、发票金额、数量），不再只有几种文本。</p>
 
-<h3>4.3 要多少数据</h3>
+<h3>4.3 用 <code>check_dataset.py</code> 检查</h3>
+<pre><code>python check_dataset.py --train train.jsonl --test test.jsonl [--dev dev.jsonl]</code></pre>
+<p>它做五件事：① 每行的格式（messages、参考答案的取值、订单号是否出现在原文里，比较时忽略大小写、空格、连字符和 #）；② 训练集条数是否在 100–20,000 之间；③ <b>泄漏</b>：把工单原文做 NFKC、转小写、去空白和标点后比较，测试集或开发集里只要有一条和训练集相同就报错；④ <b>模板重叠</b>：按 <code>template_id</code> 统计测试集有多少条用了训练集的句式，同时保留按文本的估计（把数字和订单号遮掉后比较）；⑤ 难度、标签和 <code>ood</code> 切片：按“哪条 priority 规则决定了答案”给每条打标签，报告每类条数，以及 <code>ood</code> 切片里有多少条用了训练集没有的写法。改版前后对比：</p>
+<table>
+<tr><th>统计</th><th class="num">改版前 测试集</th><th class="num">改版后 测试集</th><th>说明</th></tr>
+<tr><td>与训练集同句式（按文本，只差数字和订单号）</td><td class="num warn">94.7%</td><td class="num">0%</td><td rowspan="2">改版前的测试集只能衡量同分布准确率</td></tr>
+<tr><td>与训练集同句式（按 <code>template_id</code>）</td><td class="num">—</td><td class="num">0%</td></tr>
+<tr><td>每类条数 refund / exchange / shipping / account / other</td><td class="num warn">56 / 51 / 40 / 1 / 2</td><td class="num">30 / 30 / 30 / 30 / 30</td><td>改版前 account、other 的 category 准确率测不了</td></tr>
+<tr><td>训练集里 account / other 的不同文本</td><td class="num">21 / 22</td><td class="num">80 / 80</td><td>改版前每类最多 24 种（3 个句子 × 8 种结尾）</td></tr>
+<tr><td><code>ood</code> 切片</td><td class="num">无</td><td class="num">50 条，每类 10 条</td><td>100% 用了训练集没有的写法：英文 13、中英混写 15、订单号 28、金额 14、等待时间 7（一条可有多种）</td></tr>
+<tr><td>与训练集完全相同的工单</td><td class="num">0</td><td class="num">0</td><td>两版都没有直接泄漏</td></tr>
+<tr><td>WARN</td><td class="num warn">2 条</td><td class="num">0 条</td><td>同句式比例过高；account / other 条数不足</td></tr>
+</table>
+<p>改版后的难度和标签分布（训练集 400 条 / 测试集 150 条）：</p>
+<table>
+<tr><th>统计</th><th class="num">训练集</th><th class="num">测试集</th><th>说明</th></tr>
+<tr><td>规则 1：投诉等关键词 → high</td><td class="num">98</td><td class="num">36</td><td rowspan="5">priority 的决定规则。规则 1–2 需要推理，规则 3 是默认值</td></tr>
+<tr><td>规则 1：金额 &gt; 1000 → high</td><td class="num">22</td><td class="num">7</td></tr>
+<tr><td>规则 2：金额 200–1000 → medium</td><td class="num">44</td><td class="num">12</td></tr>
+<tr><td>规则 2：物流等待 &gt; 7 天 → medium</td><td class="num">27</td><td class="num">13</td></tr>
+<tr><td>规则 3：其他 → low</td><td class="num">209</td><td class="num">82</td></tr>
+<tr><td>priority high / medium / low</td><td class="num">120 / 71 / 209</td><td class="num">43 / 25 / 82</td><td>两边比例相差不到 3 个百分点</td></tr>
+<tr><td>陷阱：金额正好 200 或 1000（“含”边界）</td><td class="num">18</td><td class="num">3</td><td rowspan="3">打上任一陷阱标签算“难”</td></tr>
+<tr><td>陷阱：换货单带金额（amount 可有可无）</td><td class="num">32</td><td class="num">13</td></tr>
+<tr><td>陷阱：物流等了 7 或 8 天（“超过 7 天”的边界）</td><td class="num">18</td><td class="num">4</td></tr>
+<tr><td>易 / 中 / 难</td><td class="num">195 / 140 / 65</td><td class="num">78 / 54 / 18</td><td>难题占比 16.3% / 12.0%</td></tr>
+</table>
+<div class="note"><b>怎么读结果：</b><code>new_phrasing</code> 切片衡量“没见过的说法、见过的写法”，<code>ood</code> 切片再加上没见过的数字和订单号写法、中英混写和英文工单。<code>evaluate.py</code> 会分切片打印全对率，<code>compare.py --slice ood</code> 给出单个切片的置信区间。切片越小区间越宽：<code>ood</code> 只有 50 条，按 10.2 的功效计算器，同样的提升要大约 √3 倍才看得出来，所以它适合发现“训练后在新写法上变差”这类大问题，不适合比较小幅提升。数据仍是合成的：每类只有 3 个测试句式，真实工单的说法更多，上线前要用真实数据再测一次。</div>
+
+<h3>4.4 要多少数据</h3>
 <ul>
 <li><b>硬限制：</b>100–20K 条（用户指南）。本实操的 400 条在范围内。</li>
 <li><b>先小规模：</b>用户指南和最佳实践博客都建议先用 100–200 条验证奖励函数确实给出有意义的信号，再扩大。博客的经验：200–5,000 条泛化更稳定，复杂任务 5,000–10,000 条。</li>
@@ -168,7 +194,7 @@ aws lambda update-function-configuration --function-name ticket-reward --region 
 cd labs/bedrock-rft
 python make_dataset.py --train 400 --test 150 --dev 100
 python check_dataset.py --train train.jsonl --test test.jsonl --dev dev.jsonl
-for t in test_reward test_check_dataset test_compare test_run_rft; do
+for t in test_reward test_check_dataset test_make_dataset test_compare test_run_rft; do
   python -c "import $t as t; [getattr(t,n)() for n in dir(t) if n.startswith('test_')]; print('$t ok')"
 done</code></pre>
 先跑数据检查和奖励函数的单元测试。奖励写错了，后面的训练全部白费。</div>
@@ -257,14 +283,14 @@ python compare.py base.jsonl ft.jsonl</code></pre>
 <tr><td>平均输出长度（字符）</td><td></td><td></td><td></td><td>不应明显变长</td></tr>
 <tr><td>题内相关 ρ（基线）</td><td></td><td>—</td><td>—</td><td>填回 10.2 重算功效</td></tr>
 </table>
-<p>进阶实验（任选，每个都先写下预期再跑）：① 把奖励改成“全对才得 1 分”，对比学习速度，并和 5.1 的模拟比较；② <code>learning_rate_multiplier</code> 分别取 0.25、0.5、1.0；③ 按 4.2 的建议做一个分布外测试集，看泛化；④ 打开第 6 节的评审，比较回复质量的人工评分和字段准确率是否下降。</p>
+<p>进阶实验（任选，每个都先写下预期再跑）：① 把奖励改成“全对才得 1 分”，对比学习速度，并和 5.1 的模拟比较；② <code>learning_rate_multiplier</code> 分别取 0.25、0.5、1.0；③ 分别报告 <code>new_phrasing</code> 和 <code>ood</code> 两个切片，看训练后在没见过的写法上是否变差；④ 打开第 6 节的评审，比较回复质量的人工评分和字段准确率是否下降。</p>
 
 <h2>12. 常见坑</h2>
 <ul>
 <li><b>奖励函数报错：</b>某条记录抛异常时整批出错。示例代码对每条都做了异常兜底，出错记 0 分；评审出错记中性分。</li>
 <li><b>推理模型先输出思考再输出 JSON：</b><code>&lt;think&gt;</code> 块先去掉，再只取最后一个顶层 JSON 对象。</li>
 <li><b>奖励 Lambda 太慢：</b>用户指南要求秒级完成。用 LLM 评审时只评全对的回答、并发调用、设置短超时。</li>
-<li><b>测试集泄漏：</b>测试集在训练前固定，用 <code>check_dataset.py</code> 确认没有和训练集重复的工单；同模板不算泄漏，但要知道它只测同分布。</li>
+<li><b>测试集泄漏：</b>测试集在训练前固定，用 <code>check_dataset.py</code> 确认没有和训练集重复的工单。同句式不算泄漏，但只能测同分布：本实操的测试集按句式和写法留出，<code>template_id</code> 重叠为 0（4.2–4.3）。</li>
 <li><b>只看训练奖励：</b>训练奖励来自采样时的参数；上线效果以第 10 节的独立评测为准。</li>
 <li><b>短期 API key 过期：</b>脚本每轮轮询、每次评测都重新生成 token。</li>
 </ul>
@@ -350,7 +376,7 @@ function topLevelObjects(t){const out=[];let i=0;while(i<t.length){const j=t.ind
  if(o&&typeof o==='object'&&!Array.isArray(o)){out.push([j,e,o]);i=e}else i=j+1}return out}
 function parseResp(text){const t=stripThink(text);const objs=topLevelObjects(t);if(!objs.length)return[null,t.trim().length];const[s,e,o]=objs[objs.length-1];
  return[o,(t.slice(0,s)+t.slice(e)).replace(/\s/g,'').length]}
-function norm(v){if(v===null||v===undefined)return null;if(typeof v==='string'){const s=v.trim();if(['','null','none'].includes(s.toLowerCase()))return null;return /^[A-Za-z]\d+$/.test(s)?s.toUpperCase():s.toLowerCase()}return v}
+function norm(v){if(v===null||v===undefined)return null;if(typeof v==='string'){const s=v.trim();if(['','null','none'].includes(s.toLowerCase()))return null;return /^#?[A-Za-z][\s-]?\d+$/.test(s)?s.replace(/[\s#-]/g,'').toUpperCase():s.toLowerCase()}return v}
 function amtEq(p,g){if(g===null)return norm(p)===null;if(typeof p==='boolean'||p===null||p===undefined)return false;const a=Number(typeof p==='string'?p.trim():p);return p!==''&&Number.isFinite(a)&&Math.abs(a-g)<0.01}
 function fieldOk(p,ref,f){return f==='amount'?amtEq(p.amount,ref.amount):norm(p[f])===norm(ref[f])}
 function score(text,ref=REF){const[p,outside]=parseResp(text);if(!p)return{s:0,rows:[['JSON 对象','没找到',0]]};const rows=[];let t=0;

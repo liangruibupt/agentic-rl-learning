@@ -133,7 +133,9 @@ def _norm(v):
         s = v.strip()
         if s.lower() in ("", "null", "none"):
             return None
-        return s.upper() if re.fullmatch(r"[A-Za-z]\d+", s) else s.lower()
+        if re.fullmatch(r"#?[A-Za-z][\s-]?\d+", s):  # order IDs: a-10234, #A10234 -> A10234
+            return re.sub(r"[\s#-]", "", s).upper()
+        return s.lower()
     return v
 
 

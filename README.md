@@ -16,19 +16,19 @@
 | 基础班 | [02 一次训练迭代](02-basics-training-loop.html) | 从取任务到权重同步的 8 个步骤；时间花在哪里 | 逐步动画 |
 | 基础班 | [03 GRPO 入门](03-basics-grpo.html) | 组内相对优势；为什么全对或全错的组没有梯度 | 奖励滑块、GRPO / Dr.GRPO 切换 |
 | 中级班 | [04 奖励设计](04-intermediate-reward-design.html) | 奖励来源、结果主导 + 有界塑形的推导、LLM 评审奖励设计与校准、防作弊清单（可运行示例见 [labs/llm-judge](labs/llm-judge)） | 复现 Wordle 奖励倒挂案例、评审分跨档演示 |
-| 中级班 | [05 多轮训练关键技术](05-intermediate-agentic-techniques.html) | loss mask、信用分配、训推一致、冷启动、格式漂移、监控指标 | token mask 与奖励分配可视化 |
+| 中级班 | [05 多轮训练关键技术](05-intermediate-agentic-techniques.html) | loss mask、信用分配、训推一致、上下文管理与成本、冷启动、格式漂移、监控指标 | token mask 与奖励分配可视化 |
 | 进阶班 | [06 算法家族](06-advanced-algorithms.html) | PPO、GRPO、RLOO、DAPO、Dr.GRPO、GSPO、CISPO；离策略修正 | clip 计算器 |
-| 进阶班 | [07 系统架构与异步](07-advanced-systems.html) | 系统组件与资源划分；同步 vs 异步 rollout | 可点击架构图、GPU 空等甘特图 |
-| 进阶班 | [08 前沿玩家与方案](08-landscape.html) | 前沿实验室、开源框架、托管服务、环境与评测 | 分类筛选 |
-| 落地班 | [09 客户自建](09-build-your-own.html) | 选型、P0–P6 路线图、团队配置、常见问题 | 选型向导、成本估算器 |
-| 落地班 | [10 AWS 实验设计](10-aws-experiment.html) | 用 AgentCore + SageMaker AI 多轮 RL + Bedrock 设计一个可复现实验 | 可点击架构图 |
-| 落地班 | [11 实操：Bedrock RFT 单轮 RL](11-lab-bedrock-rft.html) | 准备数据、写奖励 Lambda、提交 GRPO 任务、看懂训练指标、对比基线（代码见 [labs/bedrock-rft](labs/bedrock-rft)） | 流程步进、奖励函数实验台、训练曲线诊断 |
+| 进阶班 | [07 系统架构与异步](07-advanced-systems.html) | 系统组件与资源划分；同步 vs 异步 rollout、陈旧度；用 Little 定律估并发；rollout 可靠性；映射到 AWS | 可点击架构图、GPU 空等甘特图、并发估算器 |
+| 进阶班 | [08 前沿玩家与方案](08-landscape.html) | 前沿实验室、开源框架、托管服务、公开结果与基准污染、环境与评测（事实核对于 2026-11-11） | 分类筛选、框架需求筛选、选型助手、厂商宣称检查表 |
+| 落地班 | [09 客户自建](09-build-your-own.html) | 选型、P0 就绪度评分卡、P0–P6 路线图、环境工程、评测协议、四条路线的成本对比、90 天计划、常见问题 | 选型向导、评分卡、成本估算器 |
+| 落地班 | [10 AWS 实验设计](10-aws-experiment.html) | 用 AgentCore + SageMaker AI 多轮 RL + Bedrock 设计一个可复现实验：预注册、奖励、统计功效、rollout 规模、成本 | 可点击架构图、功效计算器、rollout 规模与成本估算器 |
+| 落地班 | [11 实操：Bedrock RFT 单轮 RL](11-lab-bedrock-rft.html) | 生成并检查数据（按句式留出的测试集与 OOD 切片）、写奖励 Lambda、提交 GRPO 任务、看懂训练指标、对比基线（代码见 [labs/bedrock-rft](labs/bedrock-rft)） | 流程步进、奖励函数实验台、零方差组模拟、训练曲线诊断、成本与功效计算器 |
 
 ## AWS 实验概要（第 10 课）
 
 - **任务**：ShopOps 退换货 / 改单客服智能体，结果以订单数据库最终状态判定。
 - **智能体与环境**：Strands 智能体部署在 Amazon Bedrock AgentCore Runtime，每个 rollout 一个隔离会话。
-- **训练**：Amazon SageMaker AI 多轮 RL（GRPO + LoRA），底座为 Qwen 3.6 27B 或 GPT-OSS-20B。
+- **训练**：Amazon SageMaker AI 多轮 RL（GRPO + LoRA），底座为 Qwen 3.6 27B（us-west-2）。GPT-OSS-20B 也受支持，但它的 serverless SFT 序列长度固定 4K，放不下约 6,300 token 的完整轨迹，所以 SFT 组和 SFT→RL 组用不了。
 - **参照与教师**：Amazon Bedrock 上的前沿模型，兼任 SFT 教师和小权重 LLM 评审。
 - **实验组**：基线、提示词优化、SFT、RL、SFT→RL，以及去掉违规惩罚的消融组。
 - **指标**：pass^1、pass^4、违规率、完成率、回合数、每千任务成本。
@@ -51,7 +51,7 @@ python3 -m http.server 8000 --bind 127.0.0.1
 
 ## 说明
 
-内容基于截至 2026-11 的公开资料整理。产品支持的模型、区域和价格变化很快，落地前请以官方文档为准。文中引用的实验数字均来自所列公开资料，未经本仓库复现。
+内容基于截至 2026-11 的公开资料整理。产品支持的模型、区域和价格变化很快，落地前请以官方文档为准。外部实验数字（厂商和论文报告的结果）均来自所列公开资料，未经本仓库复现；第 04 课 4.5–4.8 的 LLM 评审校准是本仓库自己在 Amazon Bedrock 上跑的，数据和脚本在 [labs/llm-judge](labs/llm-judge)；[labs/bedrock-rft](labs/bedrock-rft) 的脚本还没有在真实账号上跑过。
 
 ## License
 
