@@ -285,7 +285,34 @@ python compare.py base.jsonl ft.jsonl</code></pre>
 </table>
 <p>进阶实验（任选，每个都先写下预期再跑）：① 把奖励改成“全对才得 1 分”，对比学习速度，并和 5.1 的模拟比较；② <code>learning_rate_multiplier</code> 分别取 0.25、0.5、1.0；③ 分别报告 <code>new_phrasing</code> 和 <code>ood</code> 两个切片，看训练后在没见过的写法上是否变差；④ 打开第 6 节的评审，比较回复质量的人工评分和字段准确率是否下降。</p>
 
-<h2>12. 常见坑</h2>
+<h2>12. 真实基线：这个任务对 gpt-oss-20b 太简单了</h2>
+<p>按第 7 节第 3 步，在提交训练任务之前，先在新测试集上测了一次基线。<b>2026-11-13 实测</b>：<code>openai.gpt-oss-20b</code>，us-west-2，通过 Mantle 端点调用，temperature 1.0（按服务设置），<code>--seed 7</code> 生成的 150 道测试题，每题 1 次。</p>
+<table>
+<tr><th>指标</th><th>结果</th></tr>
+<tr><td>全对率（四个字段都对）</td><td><b>99.3%</b>（149 / 150）</td></tr>
+<tr><td>平均奖励</td><td>0.998</td></tr>
+<tr><td>JSON 格式合格率</td><td>100%</td></tr>
+<tr><td>各字段准确率</td><td>category 99.3%，priority、order_id、amount 均为 100%</td></tr>
+<tr><td>新说法切片 / 分布外切片</td><td>99.0%（100 道）/ 100%（50 道）</td></tr>
+<tr><td>每次调用的 token</td><td>输入约 400，输出约 200–300；整次评测只花了几美分</td></tr>
+</table>
+<div class="note"><b>结论：先不训练。</b>
+<ul>
+<li>基线已经高于 95%，Bedrock 文档的建议是 RFT 可能没有必要（第 09 课第 2 节的评分卡也会给出“停”）。</li>
+<li>GRPO 学不到东西：一组 4 条回答几乎全部满分，组内优势全是 0（第 03 课第 4 节，(1−p)<sup>G</sup> + p<sup>G</sup>）。</li>
+<li>测不出提升：最好也只能从 99.3% 到 100%，相差 1 道题，比同一模型重复跑一次的波动还小（第 10.2 节的功效计算假设基线在 30% 左右，这里早已超出它适用的范围）。</li>
+<li>却要真金白银：按第 9 节的默认估算，约 10 个训练小时 × $80 ≈ $800。</li>
+</ul></div>
+<p><b>它说明了什么：</b>第 4.2 节的新生成器让测试集真正考到了没见过的说法和格式，分布外切片也是 100%，所以模型并不是在背模板，而是这个分拣任务本身对 20B 级模型太简单。这正是第 7 节第 3 步存在的理由：<b>花几美分测基线，能省下几百美元的无效训练。</b></p>
+<p><b>想真实跑一次，先把基线调到大约 20%–70%：</b></p>
+<ol>
+<li><b>加难这个任务：</b>优先级规则改成多个条件互相冲突、需要先换算的金额、相对日期计算；一张工单涉及多个订单；加入必须转人工的情形。改完先重测基线，进入区间再训练。</li>
+<li><b>换一个已知有提升空间的任务：</b>例如 aws-samples 的 GSM8K 示例，AWS 博客报告奖励从约 0.56 升到 0.85–0.97，结果可以对照。</li>
+<li><b>换更小或更弱的底座：</b>前提是它在 Bedrock RFT 的支持列表里（第 2 节）。</li>
+</ol>
+<p class="mut" style="font-size:13px">复现：<code>python evaluate.py --model openai.gpt-oss-20b --runs 1 --save baseline.jsonl</code>。只跑了 1 次，没有算置信区间；按第 10 节的做法应跑 3 次。由于差距远大于噪声，这里不影响结论。</p>
+
+<h2>13. 常见坑</h2>
 <ul>
 <li><b>奖励函数报错：</b>某条记录抛异常时整批出错。示例代码对每条都做了异常兜底，出错记 0 分；评审出错记中性分。</li>
 <li><b>推理模型先输出思考再输出 JSON：</b><code>&lt;think&gt;</code> 块先去掉，再只取最后一个顶层 JSON 对象。</li>
@@ -295,7 +322,7 @@ python compare.py base.jsonl ft.jsonl</code></pre>
 <li><b>短期 API key 过期：</b>脚本每轮轮询、每次评测都重新生成 token。</li>
 </ul>
 
-<h2>13. 从单轮到多轮</h2>
+<h2>14. 从单轮到多轮</h2>
 <table>
 <tr><th></th><th>本实操（Bedrock RFT）</th><th>第 10 课（SageMaker AI 多轮 RL）</th></tr>
 <tr><td>一次 rollout</td><td>一个 prompt → 一个回答</td><td>智能体与环境多轮交互</td></tr>
@@ -305,7 +332,7 @@ python compare.py base.jsonl ft.jsonl</code></pre>
 <tr><td>可复用的部分</td><td colspan="2">奖励设计思路、单调性测试、数据检查、指标判读、配对 bootstrap 与功效计算</td></tr>
 </table>
 
-<h2>14. 小测验</h2>
+<h2>15. 小测验</h2>
 <div class="quiz" data-answer="1"><b>基线四个字段的准确率都在 0.95 左右。改用按字段给部分分，零方差组的比例会怎样？</b><br>
 <button class="btn opt">A. 从约 19% 降到接近 0</button><button class="btn opt">B. 几乎不变</button><button class="btn opt">C. 从 0 升到约 19%</button>
 <div class="qe">正确答案 B。此时零方差的组大多是 8 个满分，两种方案下都没有差异：每题难度相同时两种方案都是 19.4%，κ = 4 时都约 38%（5.1 的模拟器可以验证）。部分分只在“有人全对、有人对一部分”的区间有用；模型已经很强时，RFT 本身的收益空间就小。</div></div>
@@ -316,7 +343,7 @@ python compare.py base.jsonl ft.jsonl</code></pre>
 <button class="btn opt">A. 先说明功效只有约 20%，要么扩大测试集（约 900 道），要么只报告差值和置信区间、不下“有提升”的结论</button><button class="btn opt">B. 每题从 3 次加到 30 次就够了</button><button class="btn opt">C. 直接跑，置信区间不含 0 就宣布有效</button>
 <div class="qe">正确答案 A。ρ = 0.5 时设计效应的下限是 0.5，每题跑再多次，有效题数也到不了 300（B 只能把功效从约 20% 提到约 25%）。C 的问题是功效太低：真有 5 个点的提升，80% 的概率看不出来；而一旦“看出来”，估计值往往被高估。</div></div>
 
-<h2>15. 参考资料（均于 2026-11-11 访问）</h2>
+<h2>16. 参考资料（均于 2026-11-11 访问）</h2>
 <h3>AWS 官方</h3>
 <ul>
 <li><a href="https://docs.aws.amazon.com/bedrock/latest/userguide/reinforcement-fine-tuning.html">Bedrock 用户指南：Customize a model with reinforcement fine-tuning</a>（支持的模型与区域；GRPO；最佳实践：先 100–200 条、0 分先 SFT、高于 95% 可能不需要、警示信号、奖励函数秒级完成）</li>
